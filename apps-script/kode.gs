@@ -20,6 +20,9 @@
 // =====================================================================
 
 var KP_VERSI = 1;
+// ID Google Sheet "Catatan Sembada Kepuh". Dipakai kalau Apps Script ini dibuat terpisah
+// (bukan dari menu Ekstensi di Sheet). Kosongkan kalau kode ditempel lewat Ekstensi > Apps Script.
+var KP_ID_SHEET = '1VYCYBaB6tcLnE9iurCG1ZVWrlHJWv-KsPxAdp4Jmp7k';
 var KP_ZONA = 'Asia/Jakarta';
 var KP_LOG = 'Log Aplikasi';
 var KP_SIMPAN_ID = 300;          // jumlah id isian terakhir yang diingat untuk mencegah catatan dobel
@@ -162,7 +165,7 @@ function keluaranJson_(o) {
 }
 
 function bukaSheet_() {
-  var id = PropertiesService.getScriptProperties().getProperty('idSheet');
+  var id = PropertiesService.getScriptProperties().getProperty('idSheet') || KP_ID_SHEET;
   if (id) return SpreadsheetApp.openById(id);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Sheet belum disiapkan. Jalankan fungsi siapkanSheet di Apps Script.');
@@ -310,7 +313,8 @@ function bacaTampilan_(peng) {
 // ---------------------------------------------------------------- PENYIAPAN SHEET
 
 function siapkanSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = KP_ID_SHEET ? SpreadsheetApp.openById(KP_ID_SHEET) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Sheet tidak ditemukan. Isi KP_ID_SHEET di bagian atas kode dengan ID Google Sheet.');
   PropertiesService.getScriptProperties().setProperty('idSheet', ss.getId());
   var hasil = siapkan_(ss);
   var pemicu = pasangPemicu_();

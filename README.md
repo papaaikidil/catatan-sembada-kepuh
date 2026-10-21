@@ -25,7 +25,7 @@ Konsepnya sama dengan Catatan Sembada, tetapi semua catatan masuk ke **Google Sh
 
 1. Buat Google Sheet baru bernama **Catatan Sembada Kepuh**.
 2. Di Sheet itu: **Ekstensi > Apps Script**. Hapus isi `Code.gs`, tempel seluruh isi `apps-script/kode.gs`, simpan.
-3. Pilih fungsi **siapkanSheet** di bagian atas, klik **Jalankan**, lalu izinkan akses. Semua tab dibuat otomatis.
+3. (Kalau Apps Script dibuat terpisah di script.google.com, pastikan `KP_ID_SHEET` di bagian atas kode berisi ID Sheet.) Pilih fungsi **siapkanSheet** di bagian atas, klik **Jalankan**, lalu izinkan akses. Semua tab dibuat otomatis.
    Akun pemilik: **wildan**. Sandi sementaranya tertulis di tab **Pengaturan** (diminta diganti saat pertama masuk).
 4. **Terapkan > Deployment baru > Aplikasi web**. Jalankan sebagai: *Saya*. Yang memiliki akses: *Siapa saja*.
    Salin alamat yang berakhiran `/exec` ke `docs/config.js` (`API_URL`).
