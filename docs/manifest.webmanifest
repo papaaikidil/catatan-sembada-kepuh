@@ -1,0 +1,17 @@
+{
+  "name": "Catatan Sembada Kepuh",
+  "short_name": "Sembada Kepuh",
+  "description": "Pencatatan harian lokasi Kepuh, Sembada Karya Wangi",
+  "lang": "id",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F4ED",
+  "theme_color": "#1B4331",
+  "icons": [
+    {"src": "ikon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "ikon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "ikon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

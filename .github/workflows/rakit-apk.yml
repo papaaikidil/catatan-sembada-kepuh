@@ -1,0 +1,62 @@
+name: Rakit APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - ".github/workflows/rakit-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Rakit aplikasi
+        working-directory: android
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      # Bila gagal, catatan kesalahan disimpan di cabang build-log supaya mudah dibaca.
+      - name: Simpan catatan kesalahan
+        if: failure()
+        run: |
+          mkdir -p /tmp/buildlog
+          cp android/build.log /tmp/buildlog/build.log || true
+          grep -nE "^e: |^w: .*error|What went wrong|Could not|error:" android/build.log > /tmp/buildlog/errors.txt || true
+          cd /tmp/buildlog
+          git init -q
+          git checkout -q -b build-log
+          git add .
+          git -c user.name="Catatan Sembada Kepuh" -c user.email="sembada@users.noreply.github.com" commit -qm "Catatan rakitan ${{ github.run_number }}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" build-log
+
+      - name: Beri nama file
+        run: cp android/app/build/outputs/apk/release/app-release.apk "CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk"
+
+      - name: Terbitkan di Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Catatan Sembada Kepuh 1.0.${{ github.run_number }}
+          body: |
+            Unduh file **CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk** di bawah ini dari HP, lalu buka untuk memasang.
+            Aplikasi ini membuka versi terbaru Catatan Sembada Kepuh dari internet, jadi perbaikan tidak perlu pasang ulang APK.
+          files: CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk
+          make_latest: true
