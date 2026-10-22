@@ -371,10 +371,39 @@ async function simpanDanKonfirmasi(page) {
   await foto(page, '18-pengguna');
   cek('pemilik menambah pencatat dengan sandi sendiri');
 
+  // pemilik mengganti nama pengguna Bu Sri
+  await page.evaluate(() => [...document.querySelectorAll('#daftar-pengguna .teks')].find(x => /Bu Sri/.test(x.textContent)).click());
+  await page.waitForSelector('.tirai form');
+  assert.strictEqual(await page.inputValue('.tirai [name=u1]'), 'sri');
+  await isi(page, '.tirai [name=u1]', 'sri.kepuh');
+  await page.click('.tirai [data-aksi="simpan"]');
+  await page.waitForFunction(() => !document.querySelector('.tirai') && /sri\.kepuh/.test(document.getElementById('daftar-pengguna').textContent));
+  cek('pemilik mengganti nama pengguna orang lain');
+
+  // pemilik mengganti nama penggunanya sendiri lewat Akun
+  await page.goto(ASAL + '#/akun');
+  await page.click('[data-ke="#/namapengguna"]');
+  await page.waitForSelector('#formulir');
+  await isi(page, '[name=b0]', 'Ada Spasi');
+  await isi(page, '[name=b1]', 'kepuh2026');
+  await page.click('#tombol-simpan');
+  await page.waitForSelector('.bidang.salah');
+  await isi(page, '[name=b0]', 'mas.wildan');
+  await isi(page, '[name=b1]', 'salah99');
+  await page.click('#tombol-simpan');
+  await page.waitForFunction(() => /Sandi salah/.test(document.getElementById('toast').textContent));
+  await isi(page, '[name=b1]', 'kepuh2026');
+  await foto(page, '18b-ganti-nama-pengguna');
+  await page.click('#tombol-simpan');
+  await page.waitForFunction(() => location.hash === '#/akun');
+  await page.waitForFunction(() => /mas\.wildan/.test(document.querySelector('.isi').textContent));
+  assert.strictEqual(objek('Pengguna').find(r => r.Nama === 'Mas Wildan')['Nama pengguna'], 'mas.wildan');
+  cek('pengguna mengganti nama penggunanya sendiri dan tetap masuk');
+
   await page.goto(ASAL + '#/akun');
   await page.click('#keluar');
   await page.waitForSelector('#form-masuk');
-  await isi(page, '#pengguna', 'sri');
+  await isi(page, '#pengguna', 'sri.kepuh');
   await isi(page, '#sandi', 'sri123');
   await page.click('#form-masuk button[type=submit]');
   await page.waitForSelector('.grid-catatan');

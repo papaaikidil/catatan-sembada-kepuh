@@ -710,6 +710,49 @@
     });
   }
 
+  // ------------------------------------------------------------ layar: ganti nama pengguna sendiri
+  var POLA_PENGGUNA = /^[a-z0-9._-]{3,30}$/;
+  var BANTUAN_PENGGUNA = '3–30 huruf kecil, angka, titik, atau garis bawah. Tanpa spasi. Contoh: wildan atau mandor.kepuh';
+  function apiBaru() { return !!(konfig && konfig.versiApi >= 2); }
+  var PESAN_API_LAMA = 'Fitur ini butuh Apps Script versi baru. Tempel ulang kode.gs terbaru di Apps Script, lalu Terapkan > Kelola deployment > Versi baru.';
+
+  function layarNamaPengguna() {
+    var bidang = [
+      {j: 'teks', h: 'Nama pengguna baru', polos: true, bantuan: BANTUAN_PENGGUNA},
+      {j: 'sandi', h: 'Sandi', label: 'Sandi saat ini', tipe: 'password', bantuan: 'Untuk memastikan ini memang Anda.'}
+    ];
+    var isi = '<div class="kartu" style="margin-bottom:16px"><div class="info-baris"><span>Nama pengguna sekarang</span><b>' + esc(akses().pengguna) + '</b></div></div>' +
+      (apiBaru() ? '' : '<div class="pratinjau awas">' + esc(PESAN_API_LAMA) + '</div>') +
+      '<form id="formulir" novalidate>' + bidang.map(function (b, i) { return htmlBidang(b, i, {}, 'b'); }).join('') + '</form>' +
+      '<p class="redup" style="font-size:.8125rem">HP lain yang sedang masuk dengan akun ini tetap masuk. Mulai sekarang, masuk memakai nama pengguna baru.</p>';
+    kerangka('Ganti nama pengguna', akses().nama || '', isi, {kembali: '#/akun', tanpaNav: true});
+    app.insertAdjacentHTML('beforeend', '<div class="aksi-bawah"><button class="tombol utama" id="tombol-simpan" type="button">Simpan nama pengguna</button></div>');
+    var form = document.getElementById('formulir');
+    pasangFormDinamis(form);
+    document.getElementById('tombol-simpan').addEventListener('click', function () {
+      var h = bacaIsian(bidang, false, 'b', form);
+      var n = h.nilai, salah = h.salah;
+      var baru = String(n['Nama pengguna baru'] || '').toLowerCase();
+      if (baru && !POLA_PENGGUNA.test(baru)) salah.push(['Nama pengguna baru', BANTUAN_PENGGUNA]);
+      else if (baru && baru === akses().pengguna) salah.push(['Nama pengguna baru', 'Sama dengan nama pengguna sekarang.']);
+      tandaiSalah(salah, form);
+      if (salah.length) return;
+      var tombol = this;
+      tombol.disabled = true; tombol.textContent = 'Menyimpan…';
+      panggil('namaPenggunaUbah', {penggunaBaru: baru, sandi: n['Sandi']}).then(function (r) {
+        tombol.disabled = false; tombol.textContent = 'Simpan nama pengguna';
+        if (!r.ok) { toast(/tidak dikenal/i.test(r.galat || '') ? PESAN_API_LAMA : (r.galat || 'Gagal menyimpan.'), 6000); return; }
+        sesi.akses = r.akses; simpan('sesi', sesi);
+        simpan('penggunaTerakhir', baru);
+        toast('Nama pengguna sekarang "' + baru + '". Pakai nama ini saat masuk.', 5000);
+        location.hash = '#/akun';
+      }, function (e) {
+        tombol.disabled = false; tombol.textContent = 'Simpan nama pengguna';
+        toast(e.jaringan ? 'Perlu sinyal untuk mengganti nama pengguna.' : e.message, 5000);
+      });
+    });
+  }
+
   // ------------------------------------------------------------ layar: beranda
   function layarBeranda() {
     var t = tampilanAktif();
@@ -913,7 +956,8 @@
     } else if (b.j === 'desimal') {
       isi = '<input class="masukan" type="text" inputmode="decimal" name="' + id + '" value="' + esc(d === undefined ? '' : d) + '">';
     } else if (b.j === 'teks') {
-      isi = '<input class="masukan" type="text" name="' + id + '" value="' + esc(d || '') + '" autocomplete="off">';
+      isi = '<input class="masukan" type="text" name="' + id + '" value="' + esc(d || '') + '" autocomplete="off"' +
+        (b.polos ? ' autocapitalize="none" spellcheck="false"' : '') + '>';
     } else if (b.j === 'sandi') {
       isi = '<input class="masukan" type="' + (b.tipe || 'text') + '" name="' + id + '" value="' + esc(d || '') + '" autocomplete="new-password" autocapitalize="none" spellcheck="false">';
     } else if (b.j === 'paragraf') {
@@ -1595,6 +1639,7 @@
       '<div class="info-baris"><span>Versi aplikasi</span><b>' + esc(VERSI) + (DI_APK ? ' (APK)' : '') + '</b></div>' +
       '</div><div class="tumpuk" style="margin-top:16px">' +
       '<button class="tombol kedua penuh" data-ke="#/sandi">' + ikon('kunci') + 'Ganti sandi</button>' +
+      '<button class="tombol kedua penuh" data-ke="#/namapengguna">' + ikon('akun') + 'Ganti nama pengguna</button>' +
       '<button class="tombol kedua penuh" data-ke="#/tampilan">' + ikon('palet') + (a.pemilik ? 'Tampilan & tata letak' : 'Ukuran huruf & mode gelap') + '</button>' +
       '<button class="tombol kedua penuh" id="perbarui">' + ikon('muat') + 'Perbarui data (nama, alat, pilihan)</button>' +
       (promptPasang && !DI_APK ? '<button class="tombol utama penuh" id="pasang">Pasang aplikasi di HP ini</button>' : '') +
@@ -1861,7 +1906,8 @@
 
   function lembarPengguna(p, selesai) {
     var bidang = [{j: 'teks', h: 'Nama', bantuan: 'Nama yang tercatat di kolom "Dicatat oleh".'}];
-    if (!p) bidang.push({j: 'teks', h: 'Nama pengguna', bantuan: 'Dipakai saat masuk. Huruf kecil tanpa spasi, contoh: sri atau mandor.kepuh'});
+    if (!p) bidang.push({j: 'teks', h: 'Nama pengguna', polos: true, bantuan: 'Dipakai saat masuk. Huruf kecil tanpa spasi, contoh: sri atau mandor.kepuh'});
+    else if (apiBaru()) bidang.push({j: 'teks', h: 'Nama pengguna', polos: true, bantuan: 'Dipakai saat masuk. Kalau diganti, beri tahu orangnya. HP yang sedang masuk tetap masuk.'});
     bidang = bidang.concat([
       {j: 'pilih', h: 'Peran', opsi: PERAN_PENGGUNA, bantuan: 'Pemilik boleh semuanya, termasuk mengatur pengguna dan tampilan.'},
       {j: 'centang', h: 'Boleh mengisi', opsi: URUTAN_TAB, wajib: false, bantuan: 'Catatan yang boleh diisi orang ini.'},
@@ -1871,7 +1917,7 @@
         bantuan: p ? 'Isi hanya kalau mau mengganti sandinya. Minimal 6 huruf atau angka.' : 'Minimal 6 huruf atau angka. Berikan ke orangnya.'},
       {j: 'pilih', h: 'Minta ganti sandi saat masuk', opsi: ['Ya', 'Tidak']}
     ]);
-    var draf = p ? {'Nama': p.nama, 'Peran': p.peran, 'Boleh mengisi': p.boleh === 'Semua' ? URUTAN_TAB.slice() : p.boleh,
+    var draf = p ? {'Nama': p.nama, 'Nama pengguna': p.pengguna, 'Peran': p.peran, 'Boleh mengisi': p.boleh === 'Semua' ? URUTAN_TAB.slice() : p.boleh,
       'Boleh mengatur': p.mengatur ? 'Ya' : 'Tidak', 'Aktif': p.aktif ? 'Ya' : 'Tidak', 'Minta ganti sandi saat masuk': 'Tidak'}
       : {'Peran': 'Pencatat', 'Boleh mengisi': URUTAN_TAB.slice(), 'Boleh mengatur': 'Tidak', 'Aktif': 'Ya', 'Minta ganti sandi saat masuk': 'Tidak'};
     var div = bukaLembar('<h2>' + (p ? 'Ubah ' + esc(p.nama) : 'Tambah pengguna') + '</h2><p class="sub">' + (p ? 'Nama pengguna: ' + esc(p.pengguna) : 'Untuk pencatat, mandor, atau keluarga') + '</p>' +
@@ -1885,7 +1931,7 @@
       if (a.dataset.aksi === 'batal') { div.remove(); return; }
       var h = bacaIsian(bidang, false, 'u', form);
       var n = h.nilai, salah = h.salah;
-      if (!p && n['Nama pengguna'] && !/^[a-z0-9._-]{3,30}$/.test(n['Nama pengguna'].toLowerCase())) salah.push(['Nama pengguna', '3–30 huruf kecil, angka, titik, atau garis bawah. Tanpa spasi.']);
+      if (n['Nama pengguna'] && !POLA_PENGGUNA.test(n['Nama pengguna'].toLowerCase())) salah.push(['Nama pengguna', BANTUAN_PENGGUNA]);
       if (n['Sandi'] && n['Sandi'].length < 6) salah.push(['Sandi', 'Minimal 6 huruf atau angka.']);
       tandaiSalah(salah, form);
       if (salah.length) return;
@@ -1894,13 +1940,16 @@
         boleh: bolehIsi.length === URUTAN_TAB.length ? 'Semua' : bolehIsi, mengatur: n['Boleh mengatur'] === 'Ya', aktif: n['Aktif'] === 'Ya',
         wajibGanti: n['Minta ganti sandi saat masuk'] === 'Ya'};
       if (n['Sandi']) data.sandiBaru = n['Sandi'];
+      var namaBaru = p && n['Nama pengguna'] ? n['Nama pengguna'].toLowerCase() : '';
+      if (namaBaru && namaBaru !== p.pengguna) data.penggunaBaru = namaBaru; else namaBaru = '';
       a.disabled = true; a.textContent = 'Menyimpan…';
       panggil('penggunaSimpan', data).then(function (r) {
         a.disabled = false; a.textContent = 'Simpan';
         if (!r.ok) { toast(r.galat || 'Gagal menyimpan.', 5000); return; }
         div.remove();
-        toast(p ? 'Pengguna diperbarui.' : 'Pengguna ditambahkan. Berikan nama pengguna dan sandinya ke orangnya.', 5000);
-        if (p && p.saya) muatKonfig();
+        toast(!p ? 'Pengguna ditambahkan. Berikan nama pengguna dan sandinya ke orangnya.'
+          : namaBaru ? 'Nama pengguna ' + p.nama + ' sekarang "' + namaBaru + '". Beri tahu orangnya.' : 'Pengguna diperbarui.', 5000);
+        if (p && p.saya) { if (namaBaru) simpan('penggunaTerakhir', namaBaru); muatKonfig(); }
         selesai();
       }, function (e) {
         a.disabled = false; a.textContent = 'Simpan';
@@ -2093,6 +2142,7 @@
       case 'antrian': layarAntrian(); break;
       case 'akun': layarAkun(); break;
       case 'sandi': layarSandi(); break;
+      case 'namapengguna': layarNamaPengguna(); break;
       case 'kelola': if (bagian[1]) layarMaster(bagian[1]); else layarKelola(); break;
       case 'pengguna': layarPengguna(); break;
       case 'tampilan': layarTampilan(); break;

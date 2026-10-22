@@ -339,4 +339,42 @@ uji('keluar menghapus sesi', () => {
   assert.strictEqual(panggil({ aksi: 'config', token: m.token }).kode, 'SESI');
 });
 
+console.log('Ganti nama pengguna');
+uji('pemilik mengganti nama pengguna orang lain, sesi HP-nya tetap jalan', () => {
+  assert.ok(panggil({ aksi: 'penggunaSimpan', token, pengguna: 'pencatat1', nama: 'Bu Sri', peran: 'Pencatat', boleh: 'Semua', aktif: true, sandiBaru: 'sri12345' }).ok);
+  const m = panggil({ aksi: 'masuk', pengguna: 'pencatat1', sandi: 'sri12345' });
+  assert.ok(m.ok, JSON.stringify(m));
+  const salah = panggil({ aksi: 'penggunaSimpan', token, pengguna: 'pencatat1', penggunaBaru: 'Bu Sri', nama: 'Bu Sri', peran: 'Pencatat', boleh: 'Semua', aktif: true });
+  assert.strictEqual(salah.ok, false, 'spasi ditolak');
+  assert.strictEqual(panggil({ aksi: 'penggunaSimpan', token, pengguna: 'pencatat1', penggunaBaru: 'wildan', nama: 'Bu Sri', peran: 'Pencatat', boleh: 'Semua', aktif: true }).ok, false, 'nama terpakai ditolak');
+  const r = panggil({ aksi: 'penggunaSimpan', token, pengguna: 'pencatat1', penggunaBaru: 'Sri.Kepuh', nama: 'Bu Sri', peran: 'Pencatat', boleh: 'Semua', aktif: true });
+  assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.pengguna, 'sri.kepuh');
+  const cfg = panggil({ aksi: 'config', token: m.token });
+  assert.ok(cfg.ok, 'sesi lama tetap berlaku'); assert.strictEqual(cfg.akses.pengguna, 'sri.kepuh');
+  assert.strictEqual(panggil({ aksi: 'masuk', pengguna: 'pencatat1', sandi: 'sri12345' }).ok, false);
+  assert.ok(panggil({ aksi: 'masuk', pengguna: 'sri.kepuh', sandi: 'sri12345' }).ok);
+});
+uji('pengguna mengganti nama penggunanya sendiri dengan sandi', () => {
+  const m = panggil({ aksi: 'masuk', pengguna: 'wildan', sandi: 'rahasia1' });
+  assert.strictEqual(panggil({ aksi: 'namaPenggunaUbah', token: m.token, penggunaBaru: 'mas.wildan', sandi: 'salah' }).galat, 'Sandi salah.');
+  assert.strictEqual(panggil({ aksi: 'namaPenggunaUbah', token: m.token, penggunaBaru: 'sri.kepuh', sandi: 'rahasia1' }).ok, false);
+  const r = panggil({ aksi: 'namaPenggunaUbah', token: m.token, penggunaBaru: 'mas.wildan', sandi: 'rahasia1' });
+  assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.akses.pengguna, 'mas.wildan'); assert.ok(r.akses.pemilik);
+  assert.ok(panggil({ aksi: 'penggunaDaftar', token }).daftar.some(p => p.pengguna === 'mas.wildan' && p.saya), 'token lain milik pemilik ikut pindah');
+  assert.ok(panggil({ aksi: 'masuk', pengguna: 'mas.wildan', sandi: 'rahasia1' }).ok);
+  assert.strictEqual(panggil({ aksi: 'masuk', pengguna: 'wildan', sandi: 'rahasia1' }).ok, false);
+  assert.ok(tab('Log Aplikasi').data.some(r2 => r2[1] === 'Ganti nama pengguna' && r2[5] === 'mas.wildan'));
+});
+uji('nama pengguna berupa angka tetap teks', () => {
+  assert.ok(panggil({ aksi: 'penggunaSimpan', token, baru: true, pengguna: '0812', nama: 'Tes', peran: 'Lainnya', boleh: [], aktif: true, sandiBaru: 'abcdef' }).ok);
+  assert.ok(panggil({ aksi: 'masuk', pengguna: '0812', sandi: 'abcdef' }).ok);
+});
+uji('sandi sementara di Pengaturan ikut nama baru', () => {
+  const k = muatKode(); k.ctx.siapkanSheet();
+  const p = k.ctx.bacaPengguna_(k.ss)[0];
+  assert.strictEqual(k.ctx.gantiNamaPengguna_(k.ss, p, 'pemilik', 'tes'), '');
+  const nilai = k.ss.getSheetByName('Pengaturan').data.find(r => r[0] === 'Sandi sementara pemilik')[1];
+  assert.ok(/^pemilik: \w+$/.test(nilai), nilai);
+});
+
 console.log('\n' + lulus + ' uji lulus.');

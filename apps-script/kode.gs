@@ -19,7 +19,7 @@
 // otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Catatan Kepuh".
 // =====================================================================
 
-var KP_VERSI = 1;
+var KP_VERSI = 2;
 // ID Google Sheet "Catatan Sembada Kepuh". Dipakai kalau Apps Script ini dibuat terpisah
 // (bukan dari menu Ekstensi di Sheet). Kosongkan kalau kode ditempel lewat Ekstensi > Apps Script.
 var KP_ID_SHEET = '1VYCYBaB6tcLnE9iurCG1ZVWrlHJWv-KsPxAdp4Jmp7k';
@@ -195,6 +195,7 @@ function layani_(ss, req) {
     case 'penggunaDaftar': return penggunaDaftar_(ss, akses);
     case 'penggunaSimpan': return penggunaSimpan_(ss, akses, req);
     case 'tampilanSimpan': return tampilanSimpan_(ss, akses, req);
+    case 'namaPenggunaUbah': return namaPenggunaUbah_(ss, akses, req);
     case 'pengaturanSimpan': return pengaturanSimpan_(ss, akses, req);
   }
   return {ok: false, galat: 'Aksi tidak dikenal: ' + aksi};
@@ -510,9 +511,13 @@ function bacaPengguna_(ss) {
 function tulisPengguna_(ss, baris, nilai) {
   var sh = tab_(ss, 'Pengguna');
   var kepala = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); });
+  var r = baris || sh.getLastRow() + 1;
+  // Nama pengguna disimpan sebagai teks, supaya nama berupa angka (misalnya 0812) tidak berubah.
+  var jNama = kepala.indexOf('Nama pengguna');
+  if (jNama >= 0 && nilai['Nama pengguna'] !== undefined) sh.getRange(r, jNama + 1).setNumberFormat('@');
   if (!baris) {
     var row = kepala.map(function (h) { return nilai[h] === undefined ? '' : nilai[h]; });
-    sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+    sh.getRange(r, 1, 1, row.length).setValues([row]);
     return;
   }
   Object.keys(nilai).forEach(function (h) {
@@ -673,9 +678,54 @@ function penggunaSimpan_(ss, akses, req) {
       ubah['Versi sesi'] = p.versi + 1;          // HP yang masuk dengan sandi lama diminta masuk lagi
       ubah['Wajib ganti sandi'] = req.wajibGanti ? 'Ya' : 'Tidak';
     }
+    if (req.penggunaBaru !== undefined && req.penggunaBaru !== null && normalNama_(req.penggunaBaru) !== p.pengguna) {
+      var gagalNama = gantiNamaPengguna_(ss, p, req.penggunaBaru, akses.pengguna);
+      if (gagalNama) return {ok: false, galat: gagalNama};
+    }
     tulisPengguna_(ss, p.baris, ubah);
-    catatLog_(ss, 'Ubah pengguna', 'Pengguna', p.baris, '', u + (req.sandiBaru ? ' (sandi diganti)' : ''), akses.pengguna);
-    return {ok: true};
+    catatLog_(ss, 'Ubah pengguna', 'Pengguna', p.baris, '', p.pengguna + (req.sandiBaru ? ' (sandi diganti)' : ''), akses.pengguna);
+    return {ok: true, pengguna: p.pengguna};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Mengganti nama pengguna (untuk masuk). Kembali '' kalau berhasil, atau pesan galat.
+// HP yang sedang masuk dengan akun ini tetap masuk, karena sesinya ikut dipindah ke nama baru.
+function gantiNamaPengguna_(ss, p, baru, oleh) {
+  baru = normalNama_(baru);
+  if (baru === p.pengguna) return '';
+  if (!/^[a-z0-9._-]{3,30}$/.test(baru)) return 'Nama pengguna 3–30 huruf kecil, angka, titik, atau garis bawah. Tanpa spasi.';
+  if (bacaPengguna_(ss).some(function (x) { return x.pengguna === baru; })) return 'Nama pengguna "' + baru + '" sudah dipakai.';
+  var lama = p.pengguna;
+  tulisPengguna_(ss, p.baris, {'Nama pengguna': baru});
+  var props = PropertiesService.getScriptProperties();
+  props.getKeys().forEach(function (k) {
+    if (k.indexOf('S_') !== 0) return;
+    try {
+      var sesi = JSON.parse(props.getProperty(k));
+      if (sesi.u === lama) { sesi.u = baru; props.setProperty(k, JSON.stringify(sesi)); }
+    } catch (e) { /* abaikan sesi rusak */ }
+  });
+  var sementara = String(bacaPengaturan_(ss)['Sandi sementara pemilik'] || '');
+  if (sementara.indexOf(lama + ':') === 0) tulisPengaturan_(ss, 'Sandi sementara pemilik', baru + sementara.slice(lama.length));
+  catatLog_(ss, 'Ganti nama pengguna', 'Pengguna', p.baris, lama, baru, oleh);
+  p.pengguna = baru;
+  return '';
+}
+
+// Pengguna mengganti nama penggunanya sendiri (wajib memasukkan sandi saat ini).
+function namaPenggunaUbah_(ss, akses, req) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var p = bacaPengguna_(ss).filter(function (x) { return x.pengguna === akses.pengguna; })[0];
+    if (!p) return {ok: false, galat: 'Pengguna tidak ditemukan.'};
+    if (hashSandi_(p.garam, String(req.sandi || '')) !== p.hash) return {ok: false, galat: 'Sandi salah.'};
+    if (normalNama_(req.penggunaBaru) === p.pengguna) return {ok: false, galat: 'Nama pengguna baru sama dengan yang sekarang.'};
+    var gagal = gantiNamaPengguna_(ss, p, req.penggunaBaru, akses.pengguna);
+    if (gagal) return {ok: false, galat: gagal};
+    return {ok: true, akses: aksesDari_(p)};
   } finally {
     lock.releaseLock();
   }
