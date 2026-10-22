@@ -365,3 +365,14 @@ details.lipat[open] .baris-angka:first-child { font-weight: 700; }
 .contoh-tampilan { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--garis); margin-top: .25rem; }
 .contoh-tampilan .ck { background: var(--kepala); color: var(--di-kepala); padding: .625rem .875rem; font-weight: 700; }
 .contoh-tampilan .ci { background: var(--latar); padding: .75rem .875rem; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+
+/* ---------- stok realtime */
+.kartu-stok .kepala-kartu { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .625rem; }
+.kartu-stok .kepala-kartu h2 { margin: 0; }
+.kartu-stok .kepala-kartu small { color: var(--teks-2); font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.titik-langsung { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--aksen); margin-right: .375rem; vertical-align: .05rem; box-shadow: 0 0 0 3px var(--aksen-muda); }
+.angka .ket-stok { display: block; font-size: .6875rem; color: var(--teks-2); font-weight: 600; margin-top: .125rem; }
+.catatan-stok { font-size: .75rem; color: var(--teks-2); margin: .625rem 0 0; }
+.catatan-stok.merah { color: var(--merah); font-weight: 700; }
+#kotak-stok { margin-bottom: var(--celah); }
+#kotak-stok + #kotak-ringkas .kartu { margin-top: 0; }

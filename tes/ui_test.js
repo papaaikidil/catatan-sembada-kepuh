@@ -254,11 +254,13 @@ async function simpanDanKonfirmasi(page) {
   await page.goto(ASAL + '#/isi/saring');
   await page.waitForSelector('#formulir');
   await pilih(page, 'b1', 'Alat 1');
-  await isi(page, '[name=b2]', '2');
-  await isi(page, '[name=b3]', '2,2');
-  await pilih(page, 'b5', 'Segar semua');
+  assert.strictEqual(await page.$eval('input[name=b2]:checked', e => e.value), 'Minyak jeruk purut', 'produk terpilih otomatis');
+  await isi(page, '[name=b3]', '2');
+  await isi(page, '[name=b4]', '2,2');
+  await pilih(page, 'b6', 'Segar semua');
   await simpanDanKonfirmasi(page);
   assert.strictEqual(objek('Saring Minyak')[0]['Minyak per sulingan (kg)'], 1.1);
+  assert.strictEqual(objek('Saring Minyak')[0]['Produk'], 'Minyak jeruk purut');
   cek('saring minyak per alat');
 
   // produk punya harga biasa → harga terisi otomatis
@@ -285,6 +287,39 @@ async function simpanDanKonfirmasi(page) {
   await simpanDanKonfirmasi(page);
   assert.strictEqual(objek('Kas')[0]['Arah'], 'Keluar');
   cek('penjualan (harga otomatis) dan kas');
+
+  console.log('Stok realtime');
+  await page.goto(ASAL + '#/');
+  await page.waitForFunction(() => /Minyak jeruk purut/.test((document.getElementById('kotak-stok') || {}).textContent || ''));
+  let teksStok = await page.textContent('#kotak-stok');
+  assert.ok(/-5,8 kg/.test(teksStok) && /Stok minus/.test(teksStok), teksStok);
+  cek('stok di beranda: 2,2 kg disaring − 8 kg terjual');
+  await page.click('#kotak-stok [data-opname]');
+  await page.waitForSelector('.tirai form');
+  await foto(page, '10b-sesuaikan-stok');
+  await isi(page, '.tirai [name=o1]', '10,5');
+  await page.click('.tirai [data-aksi="simpan"]');
+  await page.waitForFunction(() => !document.querySelector('.tirai') && /10,5 kg/.test((document.getElementById('kotak-stok') || {}).textContent || ''));
+  assert.strictEqual(objek('Penyesuaian Stok')[0]['Selisih'], 16.3);
+  cek('sesuaikan stok dengan hasil timbang, selisih tercatat');
+  // catatan yang masih di HP langsung mengubah stok
+  jaringanMati = true;
+  await page.goto(ASAL + '#/isi/saring');
+  await page.waitForSelector('#formulir');
+  await pilih(page, 'b1', 'Alat 2');
+  await isi(page, '[name=b3]', '1');
+  await isi(page, '[name=b4]', '1,5');
+  await pilih(page, 'b6', 'Segar semua');
+  await page.click('#tombol-simpan');
+  await page.click('.tirai [data-aksi="kirim"]');
+  await page.waitForFunction(() => location.hash === '#/');
+  await page.waitForFunction(() => { const t = (document.getElementById('kotak-stok') || {}).textContent || ''; return /12 kg/.test(t) && /belum terkirim/.test(t); });
+  await foto(page, '10c-stok-langsung');
+  jaringanMati = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.waitForFunction(() => { const t = (document.getElementById('kotak-stok') || {}).textContent || ''; return /12 kg/.test(t) && !/belum terkirim/.test(t); }, null, { timeout: 15000 });
+  assert.strictEqual(server.panggil({ aksi: 'stok', token }).stok.produk.find(p => p.produk === 'Minyak jeruk purut').stok, 12);
+  cek('stok langsung berubah saat dicatat, juga sebelum terkirim');
 
   console.log('Ringkasan & riwayat');
   await page.goto(ASAL + '#/');
@@ -411,6 +446,8 @@ async function simpanDanKonfirmasi(page) {
   assert.deepStrictEqual(menuSri.sort(), ['Absensi', 'Produksi Suling']);
   assert.strictEqual(await page.$('.nav a[href="#/kelola"]'), null);
   assert.strictEqual(await page.$('#kotak-ringkas'), null);
+  await page.waitForSelector('#kotak-stok .angka');
+  assert.strictEqual(await page.$('#kotak-stok [data-opname]'), null, 'pencatat tidak bisa menyesuaikan stok');
   await foto(page, '19-beranda-pencatat');
   cek('pencatat hanya melihat catatan yang boleh diisi');
 

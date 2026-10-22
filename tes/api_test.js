@@ -377,4 +377,72 @@ uji('sandi sementara di Pengaturan ikut nama baru', () => {
   assert.ok(/^pemilik: \w+$/.test(nilai), nilai);
 });
 
+console.log('Stok');
+{
+  const k = muatKode(); const ps = k.ctx.siapkanSheet(); const sandi = /Sandi sementara: (\w+)/.exec(ps)[1];
+  let t = k.panggil({ aksi: 'masuk', pengguna: 'wildan', sandi }).token;
+  t = k.panggil({ aksi: 'sandiUbah', token: t, sandiLama: sandi, sandiBaru: 'rahasia1' }).token;
+  const P = (a, d) => k.panggil(Object.assign({ aksi: a, token: t }, d));
+  const stok = () => Object.fromEntries(P('stok').stok.produk.map(p => [p.produk, p.stok]));
+  const obj = n => { const sh = k.ss.getSheetByName(n); const kp = sh.data[0]; return sh.data.slice(1).filter(r => r.some(v => v !== '' && v !== undefined)).map(r => Object.fromEntries(kp.map((h, j) => [h, r[j] === undefined ? '' : r[j]]))); };
+  uji('stok awal kosong, bertambah dari saring dan berkurang dari penjualan', () => {
+    assert.deepStrictEqual(P('stok').stok.produk, []);
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S1', nilai: { 'Tanggal saring': geser(senin, 0), 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 4, 'Minyak (kg)': 4.4, 'Hidrosol diambil (liter)': 20, 'Kondisi bahan': 'Segar semua' } }).ok);
+    assert.strictEqual(obj('Saring Minyak')[0]['Produk'], 'Minyak jeruk purut', 'produk bawaan terisi');
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S2', nilai: { 'Tanggal saring': geser(senin, 1), 'Alat suling': 'Alat 2', Produk: 'Minyak batang jeruk purut', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 1.5, 'Kondisi bahan': 'Segar semua' } }).ok);
+    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J1', nilai: { Tanggal: geser(senin, 1), Pembeli: 'X', Produk: 'Minyak jeruk purut', Jumlah: 3, 'Harga satuan (Rp)': 450000, 'Status bayar': 'Lunas' } }).ok);
+    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J2', nilai: { Tanggal: geser(senin, 1), Pembeli: 'X', Produk: 'Hidrosol jeruk purut', Jumlah: 5, 'Harga satuan (Rp)': 10000, 'Status bayar': 'Lunas' } }).ok);
+    assert.deepStrictEqual(stok(), { 'Minyak jeruk purut': 1.4, 'Minyak batang jeruk purut': 1.5, 'Hidrosol jeruk purut': 15 });
+    const m = P('stok').stok.produk.find(p => p.produk === 'Minyak jeruk purut');
+    assert.strictEqual(m.masukMinggu, 4.4); assert.strictEqual(m.keluarMinggu, 3); assert.strictEqual(m.satuan, 'kg');
+  });
+  uji('timbang gudang di saring menyetel ulang stok', () => {
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S3', nilai: { 'Tanggal saring': geser(senin, 2), 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 2, 'Kondisi bahan': 'Segar semua', 'Stok minyak di gudang (kg)': 3.2 } }).ok);
+    const m = P('stok').stok.produk.find(p => p.produk === 'Minyak jeruk purut');
+    assert.strictEqual(m.stok, 3.2); assert.strictEqual(m.selisihTimbang, -0.2); assert.strictEqual(m.timbang, geser(senin, 2));
+  });
+  uji('penyesuaian stok (opname) mencatat selisih', () => {
+    assert.strictEqual(P('stokSesuaikan', { tanggal: hariIni, baris: [{ produk: 'Minyak batang jeruk purut', stok: -1 }] }).ok, false);
+    assert.strictEqual(P('stokSesuaikan', { tanggal: hariIni, baris: [{ produk: 'Ngawur', stok: 1 }] }).ok, false);
+    assert.strictEqual(P('stokSesuaikan', { tanggal: hariIni, baris: [] }).ok, false);
+    const r = P('stokSesuaikan', { tanggal: hariIni, baris: [{ produk: 'Minyak batang jeruk purut', stok: 1.2 }, { produk: 'Hidrosol jeruk purut', stok: '' }], keterangan: 'timbang ulang' });
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.deepStrictEqual(r.hasil, [{ produk: 'Minyak batang jeruk purut', satuan: 'kg', fisik: 1.2, aplikasi: 1.5, selisih: -0.3 }]);
+    assert.strictEqual(r.stok.produk.find(p => p.produk === 'Minyak batang jeruk purut').stok, 1.2);
+    const row = obj('Penyesuaian Stok')[0];
+    assert.strictEqual(row['Selisih'], -0.3); assert.strictEqual(row['Dicatat oleh'], 'Mas Wildan');
+    assert.strictEqual(stok()['Hidrosol jeruk purut'], 15, 'yang kosong tidak diubah');
+  });
+  uji('stok minus jadi peringatan dan tampil di ringkasan & tab Ringkasan', () => {
+    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J3', nilai: { Tanggal: hariIni, Pembeli: 'X', Produk: 'Minyak batang jeruk purut', Jumlah: 2, 'Harga satuan (Rp)': 400000, 'Status bayar': 'Lunas' } }).ok);
+    const r = P('ringkasan');
+    assert.ok(r.ok);
+    assert.strictEqual(r.stok.produk.find(p => p.produk === 'Minyak batang jeruk purut').stok, -0.8);
+    assert.ok(r.peringatan.some(p => /Stok Minyak batang jeruk purut minus/.test(p.hal)));
+    const ring = k.ss.getSheetByName('Ringkasan').data.map(x => x[0]);
+    assert.ok(ring.includes('Stok sekarang') && ring.includes('Minyak jeruk purut'));
+  });
+  uji('nilai stok dari harga biasa, hanya untuk yang boleh mengatur', () => {
+    const pr = P('config').master.Produk.find(p => p.nilai.Produk === 'Minyak jeruk purut');
+    assert.ok(P('masterSimpan', { tab: 'Produk', id: pr.id, nilai: Object.assign({}, pr.nilai, { 'Harga biasa (Rp)': 450000 }) }).ok);
+    assert.strictEqual(P('stok').stok.produk.find(p => p.produk === 'Minyak jeruk purut').nilai, 1440000);
+    assert.ok(P('penggunaSimpan', { baru: true, pengguna: 'sri', nama: 'Bu Sri', peran: 'Pencatat', boleh: ['Saring Minyak'], aktif: true, sandiBaru: 'sri12345' }).ok);
+    const ts = k.panggil({ aksi: 'masuk', pengguna: 'sri', sandi: 'sri12345' }).token;
+    const rs = k.panggil({ aksi: 'stok', token: ts });
+    assert.ok(rs.ok); assert.strictEqual(rs.stok.produk[0].nilai, null);
+    assert.ok(P('tampilanSimpan', { tampilan: { stokBeranda: 'admin' } }).ok);
+    assert.strictEqual(k.panggil({ aksi: 'stok', token: ts }).ok, false);
+    assert.ok(P('stok').ok, 'pemilik tetap bisa');
+  });
+  uji('sheet lama tanpa kolom Produk ditambah otomatis', () => {
+    const sh = k.ss.getSheetByName('Saring Minyak');
+    const j = sh.data[0].indexOf('Produk');
+    sh.data.forEach(r => r.splice(j, 1));
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S9', nilai: { 'Tanggal saring': hariIni, 'Alat suling': 'Alat 1', Produk: 'Minyak batang jeruk purut', 'Jumlah sulingan yang disaring': 1, 'Minyak (kg)': 1, 'Kondisi bahan': 'Segar semua' } }).ok);
+    assert.strictEqual(sh.data[0][sh.data[0].length - 1], 'Produk');
+    assert.strictEqual(obj('Saring Minyak').find(r => r.ID === 'S9').Produk, 'Minyak batang jeruk purut');
+    assert.strictEqual(stok()['Minyak batang jeruk purut'], 0.2);
+  });
+}
+
 console.log('\n' + lulus + ' uji lulus.');

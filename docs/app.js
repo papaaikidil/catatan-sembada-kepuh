@@ -200,6 +200,10 @@
       case 'tarifSemua': return nilaiInduk('Tarif Upah', 'Pilihan', true);
       case 'produk': return nilaiInduk('Produk', 'Produk');
       case 'kategori': return nilaiInduk('Kategori Kas', 'Kategori');
+      case 'produkMinyak':
+        var kg = daftarInduk('Produk').filter(function (m) { return m.nilai['Satuan'] === 'kg'; }).map(function (m) { return m.nilai['Produk']; });
+        var bukanHidrosol = kg.filter(function (n) { return !/hidrosol/i.test(n); });
+        return bukanHidrosol.length ? bukanHidrosol : kg;
     }
     if (b.daftar) return pilihanDaftar(b.daftar);
     return [];
@@ -219,7 +223,7 @@
   var TAMPILAN_BAWAAN = {
     warna: 'sembada', kepala: '#1B4331', aksen: '#2D7C5B', mode: 'otomatis', huruf: 'normal', sudut: 'bulat',
     kepadatan: 'lega', beranda: 2, logo: true, ringkas: true, ringkasAngka: ['penjualan', 'laba', 'minyak', 'totalUpah'],
-    upahBeranda: true, menu: [], namaMenu: {}, form: {}
+    upahBeranda: true, stokBeranda: 'semua', menu: [], namaMenu: {}, form: {}
   };
   var ANGKA = {
     penjualan: {l: 'Penjualan', f: function (m) { return rp(m.penjualan); }, b: 'penjualan'},
@@ -321,7 +325,12 @@
       return {b: b, tampil: b.wajib !== false || semb.indexOf(kunciB(b)) < 0};
     });
   }
-  function bidangTampil(tab) { return bidangUrut(tab).filter(function (x) { return x.tampil; }).map(function (x) { return x.b; }); }
+  function bidangTampil(tab) { return bidangUrut(tab).filter(function (x) { return x.tampil && dikenalServer(tab, x.b); }).map(function (x) { return x.b; }); }
+  // Isian baru hanya muncul kalau Apps Script sudah mengenal kolomnya (aman saat Apps Script belum diperbarui).
+  function dikenalServer(tab, b) {
+    var kepala = (konfig && konfig.kepala && konfig.kepala[tab]) || [];
+    return !b.h || !!b.k || !kepala.length || kepala.indexOf(b.h) >= 0;
+  }
 
   // ------------------------------------------------------------ definisi formulir
   // h = judul kolom di Google Sheet (harus sama persis). k = bidang khusus (kisi alat / orang).
@@ -377,6 +386,7 @@
       bidang: [
         {j: 'tanggal', h: 'Tanggal saring'},
         {j: 'pilih', h: 'Alat suling', sumber: 'alatSaring', bantuan: 'Pilih Gabungan kalau minyak dari beberapa alat dicampur.'},
+        {j: 'pilih', h: 'Produk', sumber: 'produkMinyak', wajib: false, bawaanPertama: true, bantuan: 'Minyak ini menambah stok produk yang mana.'},
         {j: 'angka', h: 'Jumlah sulingan yang disaring', bantuan: 'Berapa kali suling sejak saringan terakhir.'},
         {j: 'desimal', h: 'Minyak (kg)', bantuan: 'Contoh 3,28 atau 3.28.'},
         {j: 'desimal', h: 'Hidrosol diambil (liter)', wajib: false},
@@ -521,7 +531,7 @@
   }
 
   // ------------------------------------------------------------ antrian kirim
-  function simpanAntrian() { simpan('antrian', antrian); perbaruiLencana(); }
+  function simpanAntrian() { simpan('antrian', antrian); perbaruiLencana(); perbaruiKotakStok(); }
 
   function kirimAntrian() {
     if (mengirim || !sesi || !antrian.length || akses().wajibGanti) return Promise.resolve();
@@ -549,7 +559,16 @@
     }, Promise.resolve(true));
     return urut.then(function () {
       mengirim = false;
-      if (terkirim) { toast(terkirim === 1 ? 'Catatan terkirim ke Google Sheet.' : terkirim + ' catatan terkirim ke Google Sheet.'); buang('ringkasan'); }
+      if (terkirim) {
+        toast(terkirim === 1 ? 'Catatan terkirim ke Google Sheet.' : terkirim + ' catatan terkirim ke Google Sheet.');
+        buang('ringkasan');
+        if (document.getElementById('kotak-ringkas')) {
+          muatRingkasan().then(function (r) {
+            var el = document.getElementById('kotak-ringkas');
+            if (el) el.innerHTML = htmlRingkasMini(r);
+          }, function () { /* coba lagi nanti */ });
+        } else if (document.getElementById('kotak-stok')) muatStok();
+      }
       perbaruiStatus();
       if (location.hash === '#/antrian') tampilkan();
     });
@@ -753,6 +772,158 @@
     });
   }
 
+  // ------------------------------------------------------------ stok realtime
+  var PESAN_STOK_LAMA = 'Stok realtime butuh Apps Script versi baru. Tempel ulang kode.gs terbaru di Apps Script, lalu Terapkan > Kelola deployment > Versi baru.';
+
+  function lihatStok() {
+    if (!sesi || !konfig || !(konfig.versiApi >= 3)) return false;
+    var m = tampilanAktif().stokBeranda || 'semua';
+    if (m === 'sembunyi') return false;
+    return admin() || m === 'semua';
+  }
+
+  // Stok dari server ditambah catatan Saring/Penjualan yang masih menunggu di HP, jadi langsung berubah saat dicatat.
+  function stokDenganAntrian(s) {
+    var x = salin(s);
+    var tunda = 0;
+    var cari = function (nama) {
+      var p = x.produk.filter(function (q) { return q.produk === nama; })[0];
+      if (!p) {
+        var m = cariInduk('Produk', 'Produk', nama);
+        p = {produk: nama, satuan: m ? m.nilai['Satuan'] : '', stok: 0, masukMinggu: 0, keluarMinggu: 0};
+        x.produk.push(p);
+      }
+      return p;
+    };
+    var bawaan = x.bawaan || {};
+    antrian.forEach(function (a) {
+      var n = a.nilai || {}, kena = false, p;
+      if (a.tab === 'Saring Minyak') {
+        var nama = n['Produk'] || bawaan.minyak;
+        var ini = (n['Tanggal saring'] || '') >= (x.mingguMulai || '');
+        if (nama && n['Minyak (kg)'] > 0) { p = cari(nama); p.stok += n['Minyak (kg)']; if (ini) p.masukMinggu += n['Minyak (kg)']; kena = true; }
+        if (bawaan.hidrosol && n['Hidrosol diambil (liter)'] > 0) {
+          p = cari(bawaan.hidrosol); p.stok += n['Hidrosol diambil (liter)']; if (ini) p.masukMinggu += n['Hidrosol diambil (liter)']; kena = true;
+        }
+        if (nama && n['Stok minyak di gudang (kg)'] !== undefined) { cari(nama).stok = n['Stok minyak di gudang (kg)']; kena = true; }
+      } else if (a.tab === 'Penjualan' && n['Produk'] && n['Jumlah'] > 0) {
+        p = cari(n['Produk']); p.stok -= n['Jumlah'];
+        if ((n['Tanggal'] || '') >= (x.mingguMulai || '')) p.keluarMinggu += n['Jumlah'];
+        kena = true;
+      }
+      if (kena) tunda++;
+    });
+    x.produk.forEach(function (q) {
+      ['stok', 'masukMinggu', 'keluarMinggu'].forEach(function (k) { q[k] = Math.round((q[k] || 0) * 1000) / 1000; });
+    });
+    x.tunda = tunda;
+    return x;
+  }
+
+  function htmlStok(s, lengkap) {
+    var judul = function (kanan) {
+      return '<div class="kepala-kartu"><h2>Stok sekarang</h2>' + (kanan ? '<small>' + kanan + '</small>' : '') + '</div>';
+    };
+    var opname = admin() ? '<button class="tautan" data-opname="1">Sesuaikan dengan hasil timbang ›</button>' : '';
+    if (!s) return '<div class="kartu kartu-stok">' + judul('') + '<div class="memuat">Memuat stok…</div></div>';
+    var x = stokDenganAntrian(s);
+    var jam = String(s.waktu || '').slice(-5).replace(':', '.');
+    var kanan = '<span class="titik-langsung"></span>' + (jam ? 'diperbarui ' + esc(jam) : 'langsung');
+    if (!x.produk.length) {
+      return '<div class="kartu kartu-stok">' + judul(kanan) +
+        '<p class="catatan-stok" style="margin-top:0">Belum ada stok tercatat. Stok bertambah dari Saring Minyak dan berkurang dari Penjualan.' +
+        (admin() ? ' Untuk stok yang sudah ada di gudang, isi lewat tombol di bawah.' : '') + '</p>' + opname + '</div>';
+    }
+    var kotak = x.produk.map(function (p) {
+      var minus = p.stok < -0.0005;
+      var gerak = (p.masukMinggu || p.keluarMinggu) ? '+' + ang(p.masukMinggu, 2) + ' / −' + ang(p.keluarMinggu, 2) + ' minggu ini' : 'tidak ada gerak minggu ini';
+      return '<div class="angka"><span>' + esc(p.produk) + '</span><b class="' + (minus ? 'minus' : '') + '">' + esc(ang(p.stok, 2) + ' ' + (p.satuan || '')) + '</b>' +
+        '<small class="ket-stok">' + esc(gerak) + '</small></div>';
+    }).join('');
+    var rinci = '';
+    if (lengkap) {
+      var totalNilai = 0, adaNilai = false;
+      rinci = '<div class="daftar-baris"><div class="daftar-judul">Timbang terakhir &amp; nilai stok</div>' + x.produk.map(function (p) {
+        if (p.nilai) { totalNilai += p.nilai; adaNilai = true; }
+        var ket = p.timbang ? tglIndo(p.timbang) + (p.selisihTimbang !== null && p.selisihTimbang !== undefined ?
+          ' · selisih ' + (p.selisihTimbang > 0 ? '+' : '') + ang(p.selisihTimbang, 2) + ' ' + (p.satuan || '') : '') : 'belum pernah ditimbang ulang';
+        return '<div class="baris-angka"><span>' + esc(p.produk) + '<small>' + esc(ket) + '</small></span><b>' + (p.nilai ? esc(rp(p.nilai)) : '') + '</b></div>';
+      }).join('') +
+        (adaNilai ? '<div class="baris-angka total"><span>Perkiraan nilai stok<small>dari harga biasa di Kelola > Produk</small></span><b>' + esc(rp(totalNilai)) + '</b></div>' : '') +
+        '</div>';
+    }
+    var minus = x.produk.some(function (p) { return p.stok < -0.0005; });
+    return '<div class="kartu kartu-stok">' + judul(kanan) + '<div class="angka-grid">' + kotak + '</div>' + rinci +
+      (x.tunda ? '<p class="catatan-stok">Termasuk ' + x.tunda + ' catatan yang belum terkirim.</p>' : '') +
+      (minus ? '<p class="catatan-stok merah">Stok minus: ada saring yang belum dicatat, atau perlu timbang ulang.</p>' : '') +
+      opname + '</div>';
+  }
+
+  function perbaruiKotakStok() {
+    var el = document.getElementById('kotak-stok');
+    var s = ambil('stok', null);
+    if (el && s) el.innerHTML = htmlStok(s, el.dataset.lengkap === '1');
+  }
+
+  function muatStok() {
+    if (!sesi || !konfig || !(konfig.versiApi >= 3)) return Promise.resolve(null);
+    return panggil('stok', {}, 20000).then(function (r) {
+      if (r && r.ok) { simpan('stok', r.stok); perbaruiKotakStok(); return r.stok; }
+      return null;
+    }, function () { return null; });
+  }
+
+  // Menyetel stok sama dengan hasil timbang di gudang (opname).
+  function lembarOpname() {
+    if (!admin()) return;
+    if (antrian.some(function (a) { return a.tab === 'Saring Minyak' || a.tab === 'Penjualan'; })) {
+      toast('Ada catatan saring/penjualan yang belum terkirim. Kirim dulu supaya selisihnya tepat.', 5000);
+      kirimAntrian();
+      return;
+    }
+    var s = ambil('stok', null) || {produk: []};
+    var nama = daftarInduk('Produk').map(function (m) { return m.nilai['Produk']; });
+    s.produk.forEach(function (p) { if (nama.indexOf(p.produk) < 0) nama.push(p.produk); });
+    if (!nama.length) { toast('Belum ada produk. Tambahkan di Kelola > Produk.'); return; }
+    var bidang = [{j: 'tanggal', h: 'Tanggal', bantuan: 'Tanggal menimbang.'}].concat(nama.map(function (n) {
+      var p = s.produk.filter(function (q) { return q.produk === n; })[0];
+      var m = cariInduk('Produk', 'Produk', n);
+      var sat = (p && p.satuan) || (m ? m.nilai['Satuan'] : '');
+      return {j: 'desimal', h: 'stok|' + n, label: n + (sat ? ' (' + sat + ')' : ''), wajib: false,
+        bantuan: 'Di aplikasi: ' + (p ? ang(p.stok, 2) + ' ' + sat : 'belum ada') + '. Kosongkan kalau tidak ditimbang.'};
+    }), [{j: 'teks', h: 'Keterangan', wajib: false}]);
+    var div = bukaLembar('<h2>Sesuaikan stok</h2><p class="sub">Isi hasil timbang di gudang. Stok di aplikasi disetel sama dengan angka ini, dan selisihnya dicatat di tab Penyesuaian Stok.</p>' +
+      '<form novalidate>' + bidang.map(function (b, i) { return htmlBidang(b, i, {}, 'o'); }).join('') + '</form>' +
+      '<div class="baris-tombol"><button class="tombol kedua" data-aksi="batal">Batal</button><button class="tombol utama" data-aksi="simpan">Simpan</button></div>');
+    var form = q(div, 'form');
+    pasangFormDinamis(form);
+    div.addEventListener('click', function (ev) {
+      var a = ev.target.closest('[data-aksi]');
+      if (!a) return;
+      if (a.dataset.aksi === 'batal') { div.remove(); return; }
+      var h = bacaIsian(bidang, false, 'o', form);
+      var baris = nama.map(function (n) { return {produk: n, stok: h.nilai['stok|' + n]}; }).filter(function (b) { return b.stok !== undefined; });
+      var salah = h.salah.slice();
+      if (!salah.length && !baris.length) salah.push(['stok|' + nama[0], 'Isi hasil timbang minimal satu produk.']);
+      tandaiSalah(salah, form);
+      if (salah.length) return;
+      a.disabled = true; a.textContent = 'Menyimpan…';
+      panggil('stokSesuaikan', {tanggal: h.nilai['Tanggal'], baris: baris, keterangan: h.nilai['Keterangan'] || ''}).then(function (r) {
+        a.disabled = false; a.textContent = 'Simpan';
+        if (!r.ok) { toast(/tidak dikenal/i.test(r.galat || '') ? PESAN_STOK_LAMA : (r.galat || 'Gagal menyimpan.'), 6000); return; }
+        div.remove();
+        simpan('stok', r.stok); buang('ringkasan');
+        perbaruiKotakStok();
+        toast('Stok disesuaikan. ' + r.hasil.map(function (x) {
+          return x.produk + ': selisih ' + (x.selisih > 0 ? '+' : '') + ang(x.selisih, 2) + ' ' + x.satuan;
+        }).join('; '), 6000);
+      }, function (e) {
+        a.disabled = false; a.textContent = 'Simpan';
+        toast(e.jaringan ? 'Perlu sinyal untuk menyesuaikan stok.' : e.message, 5000);
+      });
+    });
+  }
+
   // ------------------------------------------------------------ layar: beranda
   function layarBeranda() {
     var t = tampilanAktif();
@@ -764,11 +935,14 @@
         '<span class="teks-tombol"><b>' + esc(m.label) + '</b><small>' + esc(f.ket) + '</small></span></a>';
     }).join('');
     var isi = '<div id="kotak-status">' + htmlStatus() + '</div>';
+    var adaStok = lihatStok();
+    if (adaStok) isi += '<div id="kotak-stok">' + htmlStok(ambil('stok', null), false) + '</div>';
+    else if (admin() && konfig && !(konfig.versiApi >= 3) && (t.stokBeranda || 'semua') !== 'sembunyi') isi += '<div class="pratinjau awas">' + esc(PESAN_STOK_LAMA) + '</div>';
     if (admin() && t.ringkas !== false) isi += '<div id="kotak-ringkas">' + htmlRingkasMini(ambil('ringkasan', null)) + '</div>';
     isi += '<div class="judul-bagian">Isi catatan</div>' +
       (menu.length ? '<div class="grid-catatan k' + kolom + '">' + tombol + '</div>' : '<div class="kosong">Akun ini belum diberi akses ke catatan mana pun.</div>');
     kerangka(NAMA_APP, 'Masuk sebagai ' + (akses().nama || ''), isi, {aktif: 'beranda'});
-    if (!admin() || t.ringkas === false) return;
+    if (!admin() || t.ringkas === false) { if (adaStok) muatStok(); return; }
     var kotak = document.getElementById('kotak-ringkas');
     kotak.addEventListener('change', function (ev) {
       if (ev.target.id !== 'pilih-minggu') return;
@@ -778,6 +952,7 @@
     muatRingkasan().then(function (r) {
       var el = document.getElementById('kotak-ringkas');
       if (el && r) el.innerHTML = htmlRingkasMini(r);
+      if (!r.stok && adaStok) muatStok();
     }, function () { /* tetap pakai data tersimpan */ });
   }
 
@@ -862,7 +1037,11 @@
 
   function muatRingkasan() {
     return panggil('ringkasan').then(function (r) {
-      if (r && r.ok) { simpan('ringkasan', r); return r; }
+      if (r && r.ok) {
+        simpan('ringkasan', r);
+        if (r.stok) { simpan('stok', r.stok); perbaruiKotakStok(); }
+        return r;
+      }
       throw new Error((r && r.galat) || 'Gagal memuat ringkasan.');
     });
   }
@@ -921,8 +1100,10 @@
       kotakAngka('Kas keluar lain', rp(b.kasKeluarLain)) + kotakAngka('Kas masuk lain', rp(b.kasMasukLain)) +
       '</div></div>' : '';
 
+    var stok = r.stok ? '<div id="kotak-stok" data-lengkap="1">' + htmlStok(r.stok, true) + '</div>'
+      : '<div class="pratinjau awas">' + esc(PESAN_STOK_LAMA) + '</div>';
     return '<p class="sub" style="margin:0 0 12px;color:var(--teks-2)">Data sampai ' + esc(tglIndo(r.dataSampai) || '–') + '. Rincian lengkap ada di tab Rekap pada Google Sheet.</p>' +
-      minggu + bulan + '<div class="judul-bagian">Peringatan (kondisi terbaru)</div><div class="kartu">' + (p || '<div class="kosong">Tidak ada peringatan.</div>') + '</div>';
+      stok + minggu + bulan + '<div class="judul-bagian">Peringatan (kondisi terbaru)</div><div class="kartu">' + (p || '<div class="kosong">Tidak ada peringatan.</div>') + '</div>';
   }
 
   // ------------------------------------------------------------ bidang formulir
@@ -934,7 +1115,7 @@
     var id = px + i;
     var wajib = b.wajib !== false;
     var label = b.label || b.h;
-    var kepala = '<span class="label">' + esc(label) + (wajib ? '' : ' <span class="opsional">(boleh kosong)</span>') + '</span>' +
+    var kepala = '<span class="label">' + esc(label) + (wajib || b.bawaanPertama ? '' : ' <span class="opsional">(boleh kosong)</span>') + '</span>' +
       (b.bantuan ? '<div class="bantuan">' + esc(b.bantuan) + '</div>' : '');
     var d = draf[b.h];
     var isi = '';
@@ -970,6 +1151,7 @@
     var tipe = b.j === 'centang' ? 'checkbox' : 'radio';
     var pilihan = (opsiPaksa || opsiBidang(b)).slice();
     var terpilih = Array.isArray(d) ? d : (d !== undefined && d !== null && d !== '' ? [String(d)] : []);
+    if (!terpilih.length && b.bawaanPertama && pilihan.length) terpilih = [pilihan[0]];
     var asing = terpilih.filter(function (v) { return pilihan.indexOf(v) < 0; });
     var lainTeks = '';
     if (b.lainnya) lainTeks = asing.join(', ');
@@ -1291,7 +1473,7 @@
       });
       return;
     }
-    var bidang = ubah ? (FORM_UBAH[tab] || FORM[tab].bidang) : bidangTampil(tab);
+    var bidang = ubah ? (FORM_UBAH[tab] || FORM[tab].bidang).filter(function (b) { return dikenalServer(tab, b); }) : bidangTampil(tab);
     var draf = ubah ? mentahDariNilai(bidang, ubah.nilai) : ambil('draf.' + kunci, {});
     var html = (ubah ? '<div class="pratinjau awas">Mengubah catatan yang sudah masuk Google Sheet. Perubahan dicatat di tab Log Aplikasi.</div>' : '') +
       bidang.map(function (b, i) { return htmlBidang(b, i, draf, 'b'); }).join('') +
@@ -1509,6 +1691,7 @@
       } else if (tab === 'Saring Minyak') {
         judul = tglIndo(g('Tanggal saring')) + ' · ' + g('Alat suling');
         baris.push(f('Minyak (kg)') + ' dari ' + f('Jumlah sulingan yang disaring') + ' sulingan (' + f('Minyak per sulingan (kg)') + '/sulingan)');
+        if (g('Produk')) baris.push(f('Produk'));
         baris.push('Bahan: ' + f('Kondisi bahan') + (g('Hidrosol diambil (liter)') !== '' ? ' · hidrosol ' + f('Hidrosol diambil (liter)') : ''));
       } else if (tab === 'Penjualan') {
         judul = tglIndo(g('Tanggal')) + ' · ' + g('Pembeli');
@@ -2002,7 +2185,9 @@
         '<div class="bidang"><span class="label">Angka di ringkasan beranda</span><div class="chips">' + URUT_ANGKA.map(function (k) {
           return '<label class="chip"><input type="checkbox" name="t-angka" value="' + k + '"' + ((t.ringkasAngka || []).indexOf(k) >= 0 ? ' checked' : '') + '><span>' + esc(ANGKA[k].l) + '</span></label>';
         }).join('') + '</div></div>' +
-        pilihanChip('t-upah', [['ya', 'Tampil'], ['tidak', 'Sembunyi']], t.upahBeranda === false ? 'tidak' : 'ya', 'Upah per orang di beranda') + '</div>' +
+        pilihanChip('t-upah', [['ya', 'Tampil'], ['tidak', 'Sembunyi']], t.upahBeranda === false ? 'tidak' : 'ya', 'Upah per orang di beranda') +
+        pilihanChip('t-stok', [['semua', 'Semua pengguna'], ['admin', 'Hanya yang boleh mengatur'], ['sembunyi', 'Sembunyi']], t.stokBeranda || 'semua',
+          'Stok di beranda', 'Stok tetap terlihat di Ringkasan untuk yang boleh mengatur.') + '</div>' +
 
         '<div class="kartu"><h2>Menu catatan</h2><p class="sub">Urutan, nama, dan menu yang tampil di beranda. Menu yang disembunyikan tidak muncul untuk semua pengguna.</p>' +
         menuTerurut(t).map(function (m, i, arr) {
@@ -2052,6 +2237,7 @@
       else if (nama === 't-beranda') t2.beranda = Number(el.value);
       else if (nama === 't-ringkas') t2.ringkas = el.value === 'ya';
       else if (nama === 't-upah') t2.upahBeranda = el.value === 'ya';
+      else if (nama === 't-stok') t2.stokBeranda = el.value;
       else if (nama === 't-angka') t2.ringkasAngka = nilaiCentang(isi, 't-angka');
       else if (el.classList.contains('nama-menu')) {
         t2.namaMenu = t2.namaMenu || {};
@@ -2152,13 +2338,23 @@
 
   document.addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-ke]');
-    if (el) { ev.preventDefault(); location.hash = el.dataset.ke; }
+    if (el) { ev.preventDefault(); location.hash = el.dataset.ke; return; }
+    if (ev.target.closest('[data-opname]')) lembarOpname();
   });
   window.addEventListener('hashchange', tampilkan);
   window.addEventListener('online', function () { perbaruiStatus(); kirimAntrian(); });
   window.addEventListener('offline', perbaruiStatus);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) kirimAntrian(); });
   setInterval(function () { if (antrian.length) kirimAntrian(); }, 30000);
+  // Stok di layar diperbarui sendiri setiap menit selama aplikasi terbuka (mengikuti catatan dari HP lain).
+  setInterval(function () {
+    if (document.hidden || !navigator.onLine || !sesi) return;
+    var h = location.hash || '#/';
+    if ((h === '#/' || h === '#/ringkasan') && document.getElementById('kotak-stok')) muatStok();
+  }, 60000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && sesi && document.getElementById('kotak-stok')) muatStok();
+  });
   window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); promptPasang = e; });
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
