@@ -1,4 +1,4 @@
-/* Catatan Sembada Kepuh - pencatatan lokasi produksi utama Sembada Karya Wangi.
+/* Sembada Kepuh - pencatatan lokasi produksi utama Sembada Karya Wangi.
  * Turunan Catatan Sembada: alat suling, karyawan, dan pengguna bisa ditambah/dikurangi dari aplikasi,
  * serta warna, ukuran, dan tata letak bisa diatur. Semua catatan masuk ke Google Sheet lewat Apps Script.
  * Isian disimpan dulu di HP (antrian), lalu dikirim begitu ada sinyal. */
@@ -8,7 +8,7 @@
   var KONF = window.KEPUH_CONFIG || {};
   var API = KONF.API_URL || '';
   var VERSI = KONF.VERSI || '1.0.0';
-  var NAMA_APP = 'Catatan Sembada Kepuh';
+  var NAMA_APP = 'Sembada Kepuh';
   var DI_APK = /CatatanSembadaKepuhApp/.test(navigator.userAgent);
   var app = document.getElementById('app');
 

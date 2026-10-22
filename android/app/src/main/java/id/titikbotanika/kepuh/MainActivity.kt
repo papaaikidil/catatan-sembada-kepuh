@@ -21,7 +21,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 
 /**
- * Pembungkus aplikasi web Catatan Sembada Kepuh.
+ * Pembungkus aplikasi web Sembada Kepuh.
  * Semua tampilan dan logika ada di aplikasi web (GitHub Pages), jadi perbaikan
  * cukup dilakukan di web dan langsung sampai ke HP tanpa memasang ulang APK.
  */
@@ -139,7 +139,7 @@ class MainActivity : Activity() {
           p{color:#5B6660}
         </style></head><body><div>
           <h2>Belum ada sinyal</h2>
-          <p>Catatan Sembada Kepuh perlu internet sekali saat pertama dibuka.<br>Setelah itu bisa dipakai tanpa sinyal.</p>
+          <p>Sembada Kepuh perlu internet sekali saat pertama dibuka.<br>Setelah itu bisa dipakai tanpa sinyal.</p>
           <a href="$alamat">Coba lagi</a>
         </div></body></html>
     """.trimIndent()

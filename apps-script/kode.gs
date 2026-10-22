@@ -16,7 +16,7 @@
 //    Alamat /exec tetap sama. Jalankan "siapkanSheet" sekali lagi kalau ada kolom baru.
 //
 // Laporan (Ringkasan, Rekap Mingguan, Rekap Bulanan, Upah Mingguan, Rekap Alat) dihitung ulang
-// otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Catatan Kepuh".
+// otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Sembada Kepuh".
 // =====================================================================
 
 var KP_VERSI = 2;
@@ -146,7 +146,7 @@ var TAB_LAPORAN = ['Ringkasan', 'Rekap Mingguan', 'Rekap Bulanan', 'Upah Minggua
 // ---------------------------------------------------------------- PINTU MASUK WEB
 
 function doGet() {
-  return keluaranJson_({ok: true, pesan: 'API Catatan Sembada Kepuh aktif.', versi: KP_VERSI});
+  return keluaranJson_({ok: true, pesan: 'API Sembada Kepuh aktif.', versi: KP_VERSI});
 }
 
 function doPost(e) {
@@ -319,7 +319,7 @@ function siapkanSheet() {
   PropertiesService.getScriptProperties().setProperty('idSheet', ss.getId());
   var hasil = siapkan_(ss);
   var pemicu = pasangPemicu_();
-  var pesan = 'Sheet Catatan Sembada Kepuh siap.\n' +
+  var pesan = 'Sheet Sembada Kepuh siap.\n' +
     (hasil.dibuat.length ? 'Tab dibuat: ' + hasil.dibuat.join(', ') + '.\n' : 'Semua tab sudah ada.\n') +
     (hasil.sandi ? '\nAkun pemilik: ' + KP_PEMILIK_AWAL + '\nSandi sementara: ' + hasil.sandi + '\n(juga tertulis di tab Pengaturan, diganti saat pertama masuk)\n' : '') +
     (pemicu ? '' : '\nCatatan: pembaruan laporan otomatis setiap jam belum terpasang. Jalankan siapkanSheet sekali lagi.\n') +
@@ -456,7 +456,7 @@ function pasangPemicu_() {
 
 function onOpen() {
   try {
-    SpreadsheetApp.getUi().createMenu('Catatan Kepuh')
+    SpreadsheetApp.getUi().createMenu('Sembada Kepuh')
       .addItem('Perbarui laporan sekarang', 'perbaruiLaporan')
       .addItem('Siapkan / perbaiki sheet', 'siapkanSheet')
       .addToUi();
@@ -1563,7 +1563,7 @@ function tulisLaporan_(ss, h) {
   sh.clearContents();
   var m = h.minggu[0] || {}, b = h.bulan[0] || {};
   var baris = [
-    ['Catatan Sembada Kepuh', '', ''],
+    ['Sembada Kepuh', '', ''],
     ['Diperbarui', Utilities.formatDate(new Date(), KP_ZONA, 'dd/MM/yyyy HH:mm'), ''],
     ['Data sampai', h.dataSampai ? tglIndo_(h.dataSampai) : 'belum ada catatan', ''],
     ['', '', ''],

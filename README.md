@@ -1,4 +1,4 @@
-# Catatan Sembada Kepuh
+# Sembada Kepuh
 
 Aplikasi pencatatan harian lokasi produksi utama Sembada Karya Wangi (Kepuh): ambil bahan, produksi suling per alat, saring minyak, absensi, penjualan, dan kas.
 Konsepnya sama dengan Catatan Sembada, tetapi semua catatan masuk ke **Google Sheet terpisah** ("Catatan Sembada Kepuh").

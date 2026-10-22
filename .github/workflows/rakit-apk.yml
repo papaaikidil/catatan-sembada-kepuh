@@ -44,19 +44,19 @@ jobs:
           git init -q
           git checkout -q -b build-log
           git add .
-          git -c user.name="Catatan Sembada Kepuh" -c user.email="sembada@users.noreply.github.com" commit -qm "Catatan rakitan ${{ github.run_number }}"
+          git -c user.name="Sembada Kepuh" -c user.email="sembada@users.noreply.github.com" commit -qm "Catatan rakitan ${{ github.run_number }}"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" build-log
 
       - name: Beri nama file
-        run: cp android/app/build/outputs/apk/release/app-release.apk "CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk"
+        run: cp android/app/build/outputs/apk/release/app-release.apk "SembadaKepuh-1.0.${{ github.run_number }}.apk"
 
       - name: Terbitkan di Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Catatan Sembada Kepuh 1.0.${{ github.run_number }}
+          name: Sembada Kepuh 1.0.${{ github.run_number }}
           body: |
-            Unduh file **CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk** di bawah ini dari HP, lalu buka untuk memasang.
-            Aplikasi ini membuka versi terbaru Catatan Sembada Kepuh dari internet, jadi perbaikan tidak perlu pasang ulang APK.
-          files: CatatanSembadaKepuh-1.0.${{ github.run_number }}.apk
+            Unduh file **SembadaKepuh-1.0.${{ github.run_number }}.apk** di bawah ini dari HP, lalu buka untuk memasang.
+            Aplikasi ini membuka versi terbaru Sembada Kepuh dari internet, jadi perbaikan tidak perlu pasang ulang APK.
+          files: SembadaKepuh-1.0.${{ github.run_number }}.apk
           make_latest: true
