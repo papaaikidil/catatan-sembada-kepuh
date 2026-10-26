@@ -19,7 +19,7 @@
 // otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Sembada Kepuh".
 // =====================================================================
 
-var KP_VERSI = 4;
+var KP_VERSI = 5;
 // ID Google Sheet "Catatan Sembada Kepuh". Dipakai kalau Apps Script ini dibuat terpisah
 // (bukan dari menu Ekstensi di Sheet). Kosongkan kalau kode ditempel lewat Ekstensi > Apps Script.
 var KP_ID_SHEET = '1VYCYBaB6tcLnE9iurCG1ZVWrlHJWv-KsPxAdp4Jmp7k';
@@ -205,6 +205,7 @@ function layani_(ss, req) {
     case 'tampilanSimpan': return tampilanSimpan_(ss, akses, req);
     case 'namaPenggunaUbah': return namaPenggunaUbah_(ss, akses, req);
     case 'stok': return stok_(ss, akses);
+    case 'rincian': return rincian_(ss, akses, req);
     case 'stokSesuaikan': return stokSesuaikan_(ss, akses, req);
     case 'pengaturanSimpan': return pengaturanSimpan_(ss, akses, req);
   }
@@ -1739,6 +1740,36 @@ function ringkasan_(ss, akses) {
   }
   return {ok: true, hariIni: h.hariIni, dataSampai: h.dataSampai, minggu: h.minggu.slice(0, 26), bulan: h.bulan.slice(0, 12),
     peringatan: h.peringatan, stok: h.stok};
+}
+
+// ---------------------------------------------------------------- RINCIAN KARTU LAPORAN
+// Semua catatan dalam satu periode (maksimal 2 bulan), untuk rincian saat kartu laporan diketuk.
+function rincian_(ss, akses, req) {
+  if (!akses.admin) return {ok: false, galat: 'Rincian hanya untuk pemilik atau pengguna yang boleh mengatur.'};
+  var dari = String(req.mulai || ''), sampai = String(req.sampai || '');
+  var pola = /^\d{4}-\d{2}-\d{2}$/;
+  if (!pola.test(dari) || !pola.test(sampai) || dari > sampai) return {ok: false, galat: 'Periode tidak sah.'};
+  if (selisihHari_(dari, sampai) > 62) return {ok: false, galat: 'Periode terlalu panjang (maksimal 2 bulan).'};
+  var ambil = function (tab, kolomTgl, kolom) {
+    if (!ss.getSheetByName(tab)) return [];
+    return bacaObjek_(ss, tab).map(function (r) {
+      var k = tglKunci_(r[kolomTgl]);
+      if (!k || k < dari || k > sampai) return null;
+      var o = {t: k};
+      kolom.forEach(function (h) { o[h] = nilaiUntukAplikasi_(h, r[h]); });
+      return o;
+    }).filter(function (o) { return o; }).sort(function (a, b) { return a.t < b.t ? -1 : a.t > b.t ? 1 : 0; });
+  };
+  return {ok: true, mulai: dari, sampai: sampai,
+    ambil: ambil('Ambil Bahan', 'Tanggal', ['Pengumpul', 'Daerah', 'Kondisi bahan', 'Berat bahan (kg)', 'Uang beli bahan (Rp)',
+      'Harga bahan per kg (Rp)', 'Biaya lain di jalan (Rp)', 'Keterangan biaya lain', 'Keterangan']),
+    produksi: ambil('Produksi Suling', 'Tanggal', ['Alat suling', 'Operator', 'Jumlah sulingan', 'Kondisi alat', 'Keterangan']),
+    saring: ambil('Saring Minyak', 'Tanggal saring', ['Alat suling', 'Produk', 'Jumlah sulingan yang disaring', 'Minyak (kg)',
+      'Hidrosol diambil (liter)', 'Stok minyak di gudang (kg)', 'Kondisi bahan', 'Keterangan']),
+    absensi: ambil('Absensi', 'Tanggal', ['Nama', 'Peran', 'Kehadiran', 'Upah absensi (Rp)', 'Pekerjaan lain', 'Upah kerja lain (Rp)', 'Keterangan']),
+    penjualan: ambil('Penjualan', 'Tanggal', ['Pembeli', 'Produk', 'Jumlah', 'Satuan', 'Harga satuan (Rp)', 'Total (Rp)', 'Status bayar', 'Keterangan']),
+    kas: ambil('Kas', 'Tanggal', ['Kategori', 'Arah', 'Jumlah (Rp)', 'Keterangan']),
+    stok: ambil(TAB_STOK, 'Tanggal', ['Produk', 'Stok fisik', 'Stok di aplikasi', 'Selisih', 'Satuan', 'Keterangan'])};
 }
 
 // ---------------------------------------------------------------- STOK

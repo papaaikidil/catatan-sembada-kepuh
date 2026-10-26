@@ -254,6 +254,19 @@ uji('absensi suling yang beda dengan produksi jadi peringatan', () => {
   assert.ok(!r.peringatan.some(p => p.hal === 'Operator suling belum diabsen'));
   assert.strictEqual(r.minggu.find(x => x.mulai === senin).orang.find(o => o.nama === 'Dedi').total, 2 * 90000 + 13000);
 });
+uji('rincian periode berisi semua catatan untuk kartu laporan', () => {
+  const r = panggil({ aksi: 'rincian', token, mulai: senin, sampai: geser(senin, 6) });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.ambil.length, 1); assert.strictEqual(r.ambil[0]['Berat bahan (kg)'], 1000); assert.strictEqual(r.ambil[0].t, senin);
+  assert.strictEqual(r.produksi.length, 6);
+  assert.ok(r.absensi.some(x => x.Nama === 'Eko' && x['Upah absensi (Rp)'] === 193000));
+  assert.strictEqual(r.penjualan[0]['Total (Rp)'], 3600000);
+  assert.ok(r.kas.length >= 2);
+  assert.deepStrictEqual(r.stok, []);
+  assert.ok(r.absensi.every((x, i, a) => i === 0 || a[i - 1].t <= x.t), 'urut tanggal');
+  assert.strictEqual(panggil({ aksi: 'rincian', token, mulai: senin, sampai: geser(senin, 90) }).ok, false, 'maksimal 2 bulan');
+  assert.strictEqual(panggil({ aksi: 'rincian', token, mulai: 'x', sampai: senin }).ok, false);
+});
 uji('laporan ditulis ke tab sheet', () => {
   const rek = objek('Rekap Mingguan');
   assert.ok(rek.length >= 1);
@@ -320,6 +333,7 @@ uji('pencatat tidak boleh mengatur atau mengisi di luar haknya', () => {
   const t = tokenPencatat;
   assert.strictEqual(panggil({ aksi: 'simpan', token: t, tab: 'Kas', nilai: { Tanggal: hariIni } }).ok, false);
   assert.strictEqual(panggil({ aksi: 'ringkasan', token: t }).ok, false);
+  assert.strictEqual(panggil({ aksi: 'rincian', token: t, mulai: senin, sampai: senin }).ok, false, 'pencatat tidak bisa melihat rincian');
   assert.strictEqual(panggil({ aksi: 'masterSimpan', token: t, tab: 'Karyawan', nilai: { Nama: 'X', Peran: 'Lainnya' } }).ok, false);
   assert.strictEqual(panggil({ aksi: 'penggunaDaftar', token: t }).ok, false);
   assert.strictEqual(panggil({ aksi: 'tampilanSimpan', token: t, tampilan: {} }).ok, false);

@@ -333,9 +333,36 @@ async function simpanDanKonfirmasi(page) {
   await page.waitForSelector('.daftar-baris');
   const teksRingkasan = await page.textContent('.isi');
   assert.ok(/Alat 3/.test(teksRingkasan) && /Upah per orang/.test(teksRingkasan) && /TAGIH/.test(teksRingkasan), 'isi ringkasan');
-  await page.click('details.lipat summary');
   await foto(page, '12-ringkasan', true);
   cek('ringkasan menampilkan per alat, upah per orang, dan peringatan');
+
+  // kartu laporan bisa diketuk
+  await page.click('.angka[data-rinci="penjualan"][data-per="m"]');
+  await page.waitForFunction(() => /PT Haldin/.test((document.querySelector('.tirai .isi-rinci') || {}).textContent || ''));
+  assert.ok(/Rp3\.600\.000/.test(await page.textContent('.tirai')));
+  await page.click('.tirai [data-aksi="tutup"]');
+  await page.click('.angka[data-rinci="laba"][data-per="m"]');
+  await page.waitForSelector('.tirai .isi-rinci .total');
+  const teksLaba = await page.textContent('.tirai');
+  assert.ok(/Beli bahan/.test(teksLaba) && /Upah karyawan/.test(teksLaba) && /Kayu bakar/.test(teksLaba), teksLaba);
+  await foto(page, '12b-rincian-laba');
+  await page.click('.tirai [data-aksi="tutup"]');
+  await page.click('.angka[data-rinci="totalUpah"][data-per="b"]');
+  await page.waitForSelector('.tirai [data-gaji="Eko"]');
+  await page.click('.tirai [data-gaji="Eko"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tirai').length === 2 && /2x suling/.test(document.querySelectorAll('.tirai')[1].textContent));
+  const teksEko = await page.evaluate(() => document.querySelectorAll('.tirai')[1].textContent);
+  assert.ok(/Rp180\.000/.test(teksEko) && /produksi: Alat 1 2x/.test(teksEko) && /1 hari kerja/.test(teksEko), teksEko);
+  await foto(page, '12c-rincian-gaji');
+  await page.evaluate(() => document.querySelectorAll('.tirai').forEach(t => t.remove()));
+  // dari daftar upah per orang di kartu minggu
+  await page.click('.kartu [data-gaji="Gatot"][data-per="m"]');
+  await page.waitForFunction(() => /Tambal kolam/.test((document.querySelector('.tirai .isi-rinci') || {}).textContent || ''));
+  await page.evaluate(() => document.querySelectorAll('.tirai').forEach(t => t.remove()));
+  await page.click('#kotak-stok .angka[data-stok-rinci]');
+  await page.waitForFunction(() => /Timbang ulang|Saring/.test((document.querySelector('.tirai .isi-rinci') || {}).textContent || ''));
+  await page.evaluate(() => document.querySelectorAll('.tirai').forEach(t => t.remove()));
+  cek('kartu laporan, gaji per orang, dan stok bisa diketuk untuk rincian');
 
   await page.goto(ASAL + '#/terbaru/absensi');
   await page.waitForSelector('.baris-entri');
