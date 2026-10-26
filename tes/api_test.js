@@ -72,7 +72,8 @@ const tambah = (t, nilai) => { const r = panggil({ aksi: 'masterSimpan', token, 
 const KAR = [['Eko', 'Penyuling'], ['Gatot', 'Penyuling'], ['Sarno', 'Penyuling'], ['Yanto', 'Penyuling'], ['Rofik', 'Pengumpul'], ['Pak Muh', 'Pengumpul'], ['Dedi', 'Cadangan']];
 const idKar = {};
 uji('tambah karyawan, alat, dan tarif', () => {
-  KAR.forEach(([n, p]) => { idKar[n] = tambah('Karyawan', { Nama: n, Peran: p, 'Tanggal masuk': '2026-01-05' }); });
+  KAR.forEach(([n, p]) => { idKar[n] = tambah('Karyawan', { Nama: n, Peran: p, 'Tanggal masuk': '2026-01-05',
+    'Upah per sulingan (Rp)': n === 'Yanto' ? 100000 : (p === 'Pengumpul' ? '' : 90000) }); });
   const r = panggil({ aksi: 'masterSimpan', token, tab: 'Karyawan', nilai: { Nama: 'eko', Peran: 'Penyuling' } });
   assert.strictEqual(r.ok, false, 'nama kembar ditolak');
   assert.strictEqual(panggil({ aksi: 'masterSimpan', token, tab: 'Karyawan', nilai: { Nama: 'Budi' } }).ok, false, 'peran wajib');
@@ -80,15 +81,21 @@ uji('tambah karyawan, alat, dan tarif', () => {
   const alat = cfg.master['Alat Suling'];
   ['Eko', 'Gatot', 'Sarno', 'Yanto'].forEach((op, i) => {
     const r2 = panggil({ aksi: 'masterSimpan', token, tab: 'Alat Suling', id: alat[i].id,
-      nilai: Object.assign({}, alat[i].nilai, { 'Operator tetap': op, 'Upah per sulingan (Rp)': i === 3 ? 100000 : 90000 }) });
+      nilai: Object.assign({}, alat[i].nilai, { 'Operator tetap': op }) });
     assert.ok(r2.ok, JSON.stringify(r2));
   });
+  // uang makan penyuling ikut di tarif suling
+  cfg.master['Tarif Upah'].filter(t => t.nilai['Jumlah sulingan'] > 0).forEach(t => {
+    assert.ok(panggil({ aksi: 'masterSimpan', token, tab: 'Tarif Upah', id: t.id, nilai: Object.assign({}, t.nilai, { 'Upah (Rp)': 13000 }) }).ok);
+  });
+  assert.deepStrictEqual(cfg.master['Tarif Upah'].filter(t => t.nilai['Jumlah sulingan'] > 0).map(t => t.nilai.Pilihan), ['1x suling', '2x suling', '3x suling']);
+  assert.strictEqual(objek('Karyawan').find(k => k.Nama === 'Yanto')['Upah per sulingan (Rp)'], 100000);
   assert.strictEqual(cfg.master.Karyawan.length, 7);
   assert.ok(cfg.skema && cfg.skema.Karyawan.kolom.length, 'skema terkirim ke admin');
   assert.strictEqual(objek('Karyawan')[0]['Tanggal masuk'] instanceof Date, true);
 });
 uji('alat suling bisa ditambah dan dikurangi', () => {
-  const id5 = tambah('Alat Suling', { 'Nama alat': 'Alat 5', 'Upah per sulingan (Rp)': 90000 });
+  const id5 = tambah('Alat Suling', { 'Nama alat': 'Alat 5' });
   let cfg = panggil({ aksi: 'config', token });
   assert.strictEqual(cfg.master['Alat Suling'].filter(a => a.aktif).length, 5);
   assert.ok(panggil({ aksi: 'masterAktif', token, tab: 'Alat Suling', id: id5, aktif: false }).ok);
@@ -128,7 +135,7 @@ uji('kolom asing ditolak', () => {
   const r = kirim('Kas', { Tanggal: hariIni, Kategori: 'Kayu bakar', 'Jumlah (Rp)': 1, Ngawur: 'x' });
   assert.strictEqual(r.ok, false);
 });
-uji('produksi suling: satu baris per alat dengan upah borongan', () => {
+uji('produksi suling: satu baris per alat, tanpa upah (upah dari absensi)', () => {
   const r = kirim('Produksi Suling', { Tanggal: senin, Keterangan: '' }, [
     { 'Alat suling': 'Alat 1', Operator: 'Eko', 'Jumlah sulingan': 2, 'Kondisi alat': 'Normal' },
     { 'Alat suling': 'Alat 2', Operator: 'Gatot', 'Jumlah sulingan': 1, 'Kondisi alat': 'Normal' },
@@ -137,8 +144,7 @@ uji('produksi suling: satu baris per alat dengan upah borongan', () => {
   assert.ok(r.ok, JSON.stringify(r));
   const rows = objek('Produksi Suling');
   assert.strictEqual(rows.length, 4);
-  assert.strictEqual(rows[0]['Upah (Rp)'], 180000);
-  assert.strictEqual(rows[3]['Upah (Rp)'], 200000);
+  assert.ok(!('Upah (Rp)' in rows[0]) && !('Upah per sulingan (Rp)' in rows[0]));
   assert.strictEqual(rows[0]['ID'], 'SULING1-1');
   assert.strictEqual(rows[0]['ID isian'], 'SULING1');
 });
@@ -153,24 +159,29 @@ uji('produksi suling: isian yang sama dilewati, yang berbeda ditolak', () => {
     { 'Alat suling': 'Alat 1', Operator: 'Eko', 'Jumlah sulingan': 1 }, { 'Alat suling': 'Alat 2', Operator: 'Dedi', 'Jumlah sulingan': 2 }]);
   assert.ok(hariKedua.ok);
 });
-uji('absensi: satu baris per orang, upah dari tarif', () => {
+uji('absensi: semua upah dari tarif, suling = uang makan + n × upah per sulingan orangnya', () => {
   const r = kirim('Absensi', { Tanggal: senin }, [
-    { Nama: 'Rofik', Kehadiran: '1 trip' }, { Nama: 'Pak Muh', Kehadiran: '2 trip' }, { Nama: 'Eko', Kehadiran: 'Masuk (upah dari sulingan)' },
-    { Nama: 'Dedi', Kehadiran: 'Libur' }], 'ABSEN1');
+    { Nama: 'Rofik', Kehadiran: '1 trip' }, { Nama: 'Pak Muh', Kehadiran: '2 trip' }, { Nama: 'Eko', Kehadiran: '2x suling' },
+    { Nama: 'Gatot', Kehadiran: '1x suling' }, { Nama: 'Yanto', Kehadiran: '2x suling' }, { Nama: 'Dedi', Kehadiran: 'Libur' }], 'ABSEN1');
   assert.ok(r.ok, JSON.stringify(r));
   const rows = objek('Absensi');
-  assert.strictEqual(rows.length, 4);
-  assert.strictEqual(rows.find(x => x.Nama === 'Rofik')['Upah absensi (Rp)'], 76000);
+  assert.strictEqual(rows.length, 6);
+  const upah = n => rows.find(x => x.Nama === n)['Upah absensi (Rp)'];
+  assert.strictEqual(upah('Rofik'), 76000);
+  assert.strictEqual(upah('Eko'), 2 * 90000 + 13000);
+  assert.strictEqual(upah('Gatot'), 90000 + 13000);
+  assert.strictEqual(upah('Yanto'), 2 * 100000 + 13000, 'upah per sulingan beda per orang');
+  assert.strictEqual(upah('Dedi'), 0);
   assert.strictEqual(rows.find(x => x.Nama === 'Pak Muh')['Peran'], 'Pengumpul');
-  assert.strictEqual(rows.find(x => x.Nama === 'Eko')['Upah absensi (Rp)'], 0);
 });
 uji('absensi: kerja lain digabung ke baris yang sama, bentrok ditolak', () => {
   const r = kirim('Absensi', { Tanggal: senin }, [{ Nama: 'Rofik', 'Pekerjaan lain': 'Tambal kolam', 'Upah kerja lain (Rp)': 50000 },
     { Nama: 'Gatot', 'Pekerjaan lain': 'Tambal kolam', 'Upah kerja lain (Rp)': 50000 }]);
   assert.ok(r.ok, JSON.stringify(r));
-  assert.strictEqual(r.gabung, 1); assert.strictEqual(r.baris, 1);
+  assert.strictEqual(r.gabung, 2); assert.strictEqual(r.baris, 0);
   const rows = objek('Absensi');
-  assert.strictEqual(rows.length, 5);
+  assert.strictEqual(rows.length, 6);
+  assert.strictEqual(rows.find(x => x.Nama === 'Gatot')['Upah absensi (Rp)'], 103000, 'upah absensi tetap');
   const rofik = rows.find(x => x.Nama === 'Rofik');
   assert.strictEqual(rofik['Kehadiran'], '1 trip');
   assert.strictEqual(rofik['Upah kerja lain (Rp)'], 50000);
@@ -207,26 +218,41 @@ uji('ringkasan menghitung minggu, alat, dan upah per orang', () => {
   assert.strictEqual(m.sulingan, 8);
   assert.strictEqual(m.minyak, 8.3);
   assert.strictEqual(m.minyakPerSulingan, 1.038);
-  assert.strictEqual(m.upahSuling, 180000 + 90000 + 0 + 200000 + 90000 + 180000);
-  assert.strictEqual(m.upahAbsensi, 76000 + 126000);
+  assert.strictEqual(m.upahSuling, undefined, 'tidak ada lagi upah dari produksi');
+  assert.strictEqual(m.upahAbsensi, 76000 + 126000 + 193000 + 103000 + 213000);
   assert.strictEqual(m.upahLain, 100000);
+  assert.strictEqual(m.totalUpah, 711000 + 100000);
   assert.strictEqual(m.operasional, 200000);
   assert.strictEqual(m.kasKeluarLain, 500000);
   assert.strictEqual(m.penjualan, 3600000);
   assert.strictEqual(m.belumLunas, 3600000);
-  assert.strictEqual(m.biayaProduksi, 850000 + 740000 + 202000 + 100000 + 200000);
+  assert.strictEqual(m.biayaProduksi, 850000 + 711000 + 100000 + 200000);
   assert.strictEqual(m.laba, 3600000 - m.biayaProduksi);
   const a1 = m.alat.find(a => a.nama === 'Alat 1');
   assert.strictEqual(a1.sulingan, 3); assert.strictEqual(a1.minyakPerSulingan, 1.1); assert.strictEqual(a1.operator, 'Eko');
   const a3 = m.alat.find(a => a.nama === 'Alat 3');
   assert.strictEqual(a3.hariKosong, 2, 'Alat 3 tidak jalan 2 hari');
   const dedi = m.orang.find(o => o.nama === 'Dedi');
-  assert.strictEqual(dedi.sulingan, 2); assert.strictEqual(dedi.upahSuling, 180000); assert.strictEqual(dedi.peran, 'Cadangan');
+  assert.strictEqual(dedi.sulingan, 2, 'sulingan tetap terlihat dari produksi'); assert.strictEqual(dedi.total, 0); assert.strictEqual(dedi.peran, 'Cadangan');
+  const eko = m.orang.find(o => o.nama === 'Eko');
+  assert.strictEqual(eko.total, 193000); assert.strictEqual(eko.hariMasuk, 1);
   const rofik = m.orang.find(o => o.nama === 'Rofik');
   assert.strictEqual(rofik.total, 126000); assert.strictEqual(rofik.hariMasuk, 1);
   assert.strictEqual(m.orang[0].peran, 'Penyuling', 'penyuling di urutan atas');
   assert.ok(rk.peringatan.some(p => p.status === 'TAGIH'));
   assert.ok(rk.peringatan.some(p => /Alat 3 tidak jalan/.test(p.hal)));
+  const belum = rk.peringatan.find(p => p.hal === 'Operator suling belum diabsen');
+  assert.ok(belum && /Eko/.test(belum.nilai) && /Dedi/.test(belum.nilai), JSON.stringify(rk.peringatan));
+  assert.ok(!rk.peringatan.some(p => /Upah per sulingan belum diisi/.test(p.hal)));
+});
+uji('absensi suling yang beda dengan produksi jadi peringatan', () => {
+  assert.ok(kirim('Absensi', { Tanggal: geser(senin, 1) }, [{ Nama: 'Eko', Kehadiran: '2x suling' }, { Nama: 'Dedi', Kehadiran: '2x suling' }]).ok);
+  const r = panggil({ aksi: 'ringkasan', token });
+  const beda = r.peringatan.find(p => /beda dengan produksi/.test(p.hal));
+  assert.ok(beda && /Eko/.test(beda.nilai) && /absen 2x, produksi 1x/.test(beda.nilai), JSON.stringify(r.peringatan));
+  assert.ok(!/Dedi/.test(beda.nilai), 'Dedi cocok');
+  assert.ok(!r.peringatan.some(p => p.hal === 'Operator suling belum diabsen'));
+  assert.strictEqual(r.minggu.find(x => x.mulai === senin).orang.find(o => o.nama === 'Dedi').total, 2 * 90000 + 13000);
 });
 uji('laporan ditulis ke tab sheet', () => {
   const rek = objek('Rekap Mingguan');
@@ -251,12 +277,16 @@ uji('riwayat terurut tanggal terbaru', () => {
   assert.strictEqual(r.data[0].nilai['Tanggal'], geser(senin, 1));
 });
 uji('ubah catatan menghitung ulang upah', () => {
+  const ra = panggil({ aksi: 'terbaru', token, tab: 'Absensi', n: 20 });
+  const g = ra.data.find(d => d.nilai['Nama'] === 'Gatot');
+  assert.ok(panggil({ aksi: 'ubah', token, tab: 'Absensi', id: g.id, nilai: { Kehadiran: '2x suling' } }).ok);
+  assert.strictEqual(objek('Absensi').find(d => d.ID === g.id)['Upah absensi (Rp)'], 193000);
+  assert.ok(panggil({ aksi: 'ubah', token, tab: 'Absensi', id: g.id, nilai: { Nama: 'Yanto' } }).ok === false, 'Yanto sudah ada di tanggal itu');
   const r = panggil({ aksi: 'terbaru', token, tab: 'Produksi Suling', n: 10 });
   const x = r.data.find(d => d.nilai['Alat suling'] === 'Alat 3');
   const u = panggil({ aksi: 'ubah', token, tab: 'Produksi Suling', id: x.id, nilai: { 'Jumlah sulingan': 1, Operator: 'Sarno' } });
   assert.ok(u.ok, JSON.stringify(u));
-  const row = objek('Produksi Suling').find(d => d.ID === x.id);
-  assert.strictEqual(row['Upah (Rp)'], 90000);
+  assert.strictEqual(objek('Produksi Suling').find(d => d.ID === x.id)['Operator'], 'Sarno');
   const bentrok = panggil({ aksi: 'ubah', token, tab: 'Produksi Suling', id: x.id, nilai: { 'Alat suling': 'Alat 1' } });
   assert.strictEqual(bentrok.ok, false, 'alat & tanggal kembar ditolak');
   assert.strictEqual(props.laporanKotor, '1');
@@ -377,6 +407,45 @@ uji('sandi sementara di Pengaturan ikut nama baru', () => {
   assert.ok(/^pemilik: \w+$/.test(nilai), nilai);
 });
 
+console.log('Pindah ke upah dari absensi (Sheet lama)');
+uji('upah per sulingan pindah dari alat ke operator, pilihan 1x/2x/3x suling dibuat', () => {
+  const k = muatKode(); const ps = k.ctx.siapkanSheet(); const sandi = /Sandi sementara: (\w+)/.exec(ps)[1];
+  const sh = n => k.ss.getSheetByName(n);
+  const buangKolom = (n, h) => { const d = sh(n).data; const j = d[0].indexOf(h); d.forEach(r => r.splice(j, 1)); };
+  // bentuk Sheet versi lama
+  buangKolom('Karyawan', 'Upah per sulingan (Rp)');
+  buangKolom('Tarif Upah', 'Jumlah sulingan');
+  const T = sh('Tarif Upah').data;
+  for (let i = T.length - 1; i > 0; i--) if (/suling|nyuling/.test(T[i][1])) T.splice(i, 1);
+  T.push(['IDLAMA', 'Masuk (upah dari sulingan)', 'Penyuling', 13000, 'Masuk', 3, 'Ya']);
+  const A = sh('Alat Suling').data;
+  A[0].splice(3, 0, 'Upah per sulingan (Rp)');
+  A.slice(1).forEach((r, i) => r.splice(3, 0, [100000, 75000, 80000, 75000][i]));
+  A[1][2] = 'pak surat'; A[2][2] = 'pak koto';
+  const K = sh('Karyawan').data;
+  K.push(['K1', 'pak surat', 'Penyuling', '', '', '', '', 1, 'Ya'], ['K2', 'Pak Koto', 'Penyuling', '', '', '', '', 2, 'Ya']);
+  sh('Absensi').data.push(['A1', new Date(), 'x', new Date(hariIni + 'T00:00:00+07:00'), 'pak surat', 'Penyuling', 'Masuk (upah dari sulingan)', 13000, '', '', '', 'A']);
+  delete k.props.migrasiUpah;
+  let t = k.panggil({ aksi: 'masuk', pengguna: 'wildan', sandi }).token;
+  t = k.panggil({ aksi: 'sandiUbah', token: t, sandiLama: sandi, sandiBaru: 'rahasia1' }).token;
+  const cfg = k.panggil({ aksi: 'config', token: t });
+  const rate = n => cfg.master.Karyawan.find(x => x.nilai.Nama === n).nilai['Upah per sulingan (Rp)'];
+  assert.strictEqual(rate('pak surat'), 100000);
+  assert.strictEqual(rate('Pak Koto'), 75000, 'nama tidak peka huruf besar');
+  const suling = cfg.master['Tarif Upah'].filter(x => x.nilai['Jumlah sulingan'] > 0);
+  assert.deepStrictEqual(suling.map(x => [x.nilai.Pilihan, x.nilai['Upah (Rp)'], x.nilai['Jumlah sulingan']]), [['1x suling', 13000, 1], ['2x suling', 13000, 2], ['3x suling', 13000, 3]]);
+  const urut = cfg.master['Tarif Upah'].map(x => x.nilai.Pilihan);
+  assert.ok(urut.indexOf('1x suling') < urut.indexOf('Masuk tanpa nyuling'), 'pilihan suling di atas');
+  assert.ok(sh('Absensi').data.some(r => r[6] === 'Masuk tanpa nyuling'), 'catatan lama ikut ganti nama');
+  assert.strictEqual(k.props.migrasiUpah, '1');
+  const r = k.panggil({ aksi: 'simpan', token: t, tab: 'Absensi', id: 'M1', nilai: { Tanggal: geser(hariIni, -1) }, baris: [{ Nama: 'pak surat', Kehadiran: '2x suling' }] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(sh('Absensi').data.find(x => x[0] === 'M1-1')[7], 213000);
+  const n = sh('Tarif Upah').data.length;
+  k.panggil({ aksi: 'config', token: t });
+  assert.strictEqual(sh('Tarif Upah').data.length, n, 'hanya sekali');
+});
+
 console.log('Stok');
 {
   const k = muatKode(); const ps = k.ctx.siapkanSheet(); const sandi = /Sandi sementara: (\w+)/.exec(ps)[1];
@@ -387,19 +456,19 @@ console.log('Stok');
   const obj = n => { const sh = k.ss.getSheetByName(n); const kp = sh.data[0]; return sh.data.slice(1).filter(r => r.some(v => v !== '' && v !== undefined)).map(r => Object.fromEntries(kp.map((h, j) => [h, r[j] === undefined ? '' : r[j]]))); };
   uji('stok awal kosong, bertambah dari saring dan berkurang dari penjualan', () => {
     assert.deepStrictEqual(P('stok').stok.produk, []);
-    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S1', nilai: { 'Tanggal saring': geser(senin, 0), 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 4, 'Minyak (kg)': 4.4, 'Hidrosol diambil (liter)': 20, 'Kondisi bahan': 'Segar semua' } }).ok);
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S1', nilai: { 'Tanggal saring': hariIni, 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 4, 'Minyak (kg)': 4.4, 'Hidrosol diambil (liter)': 20, 'Kondisi bahan': 'Segar semua' } }).ok);
     assert.strictEqual(obj('Saring Minyak')[0]['Produk'], 'Minyak jeruk purut', 'produk bawaan terisi');
-    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S2', nilai: { 'Tanggal saring': geser(senin, 1), 'Alat suling': 'Alat 2', Produk: 'Minyak batang jeruk purut', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 1.5, 'Kondisi bahan': 'Segar semua' } }).ok);
-    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J1', nilai: { Tanggal: geser(senin, 1), Pembeli: 'X', Produk: 'Minyak jeruk purut', Jumlah: 3, 'Harga satuan (Rp)': 450000, 'Status bayar': 'Lunas' } }).ok);
-    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J2', nilai: { Tanggal: geser(senin, 1), Pembeli: 'X', Produk: 'Hidrosol jeruk purut', Jumlah: 5, 'Harga satuan (Rp)': 10000, 'Status bayar': 'Lunas' } }).ok);
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S2', nilai: { 'Tanggal saring': hariIni, 'Alat suling': 'Alat 2', Produk: 'Minyak batang jeruk purut', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 1.5, 'Kondisi bahan': 'Segar semua' } }).ok);
+    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J1', nilai: { Tanggal: hariIni, Pembeli: 'X', Produk: 'Minyak jeruk purut', Jumlah: 3, 'Harga satuan (Rp)': 450000, 'Status bayar': 'Lunas' } }).ok);
+    assert.ok(P('simpan', { tab: 'Penjualan', id: 'J2', nilai: { Tanggal: hariIni, Pembeli: 'X', Produk: 'Hidrosol jeruk purut', Jumlah: 5, 'Harga satuan (Rp)': 10000, 'Status bayar': 'Lunas' } }).ok);
     assert.deepStrictEqual(stok(), { 'Minyak jeruk purut': 1.4, 'Minyak batang jeruk purut': 1.5, 'Hidrosol jeruk purut': 15 });
     const m = P('stok').stok.produk.find(p => p.produk === 'Minyak jeruk purut');
     assert.strictEqual(m.masukMinggu, 4.4); assert.strictEqual(m.keluarMinggu, 3); assert.strictEqual(m.satuan, 'kg');
   });
   uji('timbang gudang di saring menyetel ulang stok', () => {
-    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S3', nilai: { 'Tanggal saring': geser(senin, 2), 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 2, 'Kondisi bahan': 'Segar semua', 'Stok minyak di gudang (kg)': 3.2 } }).ok);
+    assert.ok(P('simpan', { tab: 'Saring Minyak', id: 'S3', nilai: { 'Tanggal saring': hariIni, 'Alat suling': 'Alat 1', 'Jumlah sulingan yang disaring': 2, 'Minyak (kg)': 2, 'Kondisi bahan': 'Segar semua', 'Stok minyak di gudang (kg)': 3.2 } }).ok);
     const m = P('stok').stok.produk.find(p => p.produk === 'Minyak jeruk purut');
-    assert.strictEqual(m.stok, 3.2); assert.strictEqual(m.selisihTimbang, -0.2); assert.strictEqual(m.timbang, geser(senin, 2));
+    assert.strictEqual(m.stok, 3.2); assert.strictEqual(m.selisihTimbang, -0.2); assert.strictEqual(m.timbang, hariIni);
   });
   uji('penyesuaian stok (opname) mencatat selisih', () => {
     assert.strictEqual(P('stokSesuaikan', { tanggal: hariIni, baris: [{ produk: 'Minyak batang jeruk purut', stok: -1 }] }).ok, false);
@@ -414,6 +483,7 @@ console.log('Stok');
     assert.strictEqual(stok()['Hidrosol jeruk purut'], 15, 'yang kosong tidak diubah');
   });
   uji('stok minus jadi peringatan dan tampil di ringkasan & tab Ringkasan', () => {
+    const t0 = Date.now(); while (Date.now() - t0 < 5) { /* waktu kirim berbeda dengan penyesuaian sebelumnya */ }
     assert.ok(P('simpan', { tab: 'Penjualan', id: 'J3', nilai: { Tanggal: hariIni, Pembeli: 'X', Produk: 'Minyak batang jeruk purut', Jumlah: 2, 'Harga satuan (Rp)': 400000, 'Status bayar': 'Lunas' } }).ok);
     const r = P('ringkasan');
     assert.ok(r.ok);

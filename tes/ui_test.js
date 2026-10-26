@@ -118,13 +118,15 @@ async function simpanDanKonfirmasi(page) {
     await page.waitForSelector('.tirai form');
     await isi(page, '.tirai [name=m0]', nama);
     await pilih(page, 'm1', peran, '.tirai');
+    if (peran === 'Penyuling') await isi(page, '.tirai [name=m2]', '90000');
     await page.click('.tirai [data-aksi="simpan"]');
     await page.waitForFunction((n) => [...document.querySelectorAll('.item-induk b')].some(b => b.textContent === n) && !document.querySelector('.tirai'), nama);
   }
   // sisanya lewat API supaya cepat
   const token = await page.evaluate(() => JSON.parse(localStorage.getItem('kepuh.sesi')).token);
   [['Sarno', 'Penyuling'], ['Yanto', 'Penyuling'], ['Pak Muh', 'Pengumpul'], ['Dedi', 'Cadangan'], ['Bambang', 'Pengumpul']].forEach(([n, p]) => {
-    assert.ok(server.panggil({ aksi: 'masterSimpan', token, tab: 'Karyawan', nilai: { Nama: n, Peran: p } }).ok);
+    assert.ok(server.panggil({ aksi: 'masterSimpan', token, tab: 'Karyawan', nilai: { Nama: n, Peran: p,
+      'Upah per sulingan (Rp)': n === 'Yanto' ? 100000 : (p === 'Pengumpul' ? '' : 90000) } }).ok);
   });
   await page.click('#tombol-muat').catch(() => {});
   await page.goto(ASAL + '#/kelola');
@@ -139,6 +141,7 @@ async function simpanDanKonfirmasi(page) {
   await page.click('.tirai [data-aksi="mati"]');
   await page.waitForFunction(() => !document.querySelector('.tirai') && document.querySelectorAll('.judul-bagian').length === 1);
   assert.ok(objek('Karyawan').find(k => k.Nama === 'Bambang').Aktif === 'Tidak');
+  assert.strictEqual(objek('Karyawan').find(k => k.Nama === 'Eko')['Upah per sulingan (Rp)'], 90000);
   cek('karyawan ditambah dan ditandai keluar dari aplikasi');
 
   await page.goto(ASAL + '#/kelola/alat');
@@ -148,7 +151,6 @@ async function simpanDanKonfirmasi(page) {
     await page.evaluate((i) => document.querySelectorAll('.kartu .item-induk .teks')[i].click(), i);
     await page.waitForSelector('.tirai form');
     await pilih(page, 'm1', ops[i], '.tirai');
-    await isi(page, '.tirai [name=m2]', i === 3 ? '100000' : '90000');
     if (i === 0) await foto(page, '05-ubah-alat');
     await page.click('.tirai [data-aksi="simpan"]');
     await page.waitForFunction(() => !document.querySelector('.tirai'));
@@ -184,15 +186,14 @@ async function simpanDanKonfirmasi(page) {
   assert.strictEqual(await page.$eval('input[name="b1_a0_op"]:checked', e => e.value), 'Eko');
   await page.waitForSelector('#pratinjau:not([hidden])');
   const prat = await page.textContent('#pratinjau');
-  assert.ok(/3 sulingan/.test(prat) && /270\.000/.test(prat), prat);
+  assert.ok(/3 sulingan/.test(prat) && /Absensi/.test(prat), prat);
   await foto(page, '08-produksi-terisi', true);
   await simpanDanKonfirmasi(page);
   const prod = objek('Produksi Suling');
   assert.strictEqual(prod.length, 3);
-  assert.strictEqual(prod[0]['Upah (Rp)'], 180000);
   assert.strictEqual(prod[2]['Kondisi alat'], 'Ketel bocor');
   assert.strictEqual(prod[0]['Dicatat oleh'], 'Mas Wildan');
-  cek('produksi suling 3 alat tersimpan dengan upah borongan');
+  cek('produksi suling 3 alat tersimpan (tanpa upah)');
 
   await page.goto(ASAL + '#/isi/suling');
   await page.waitForSelector('.kisi-alat');
@@ -211,10 +212,11 @@ async function simpanDanKonfirmasi(page) {
   await page.goto(ASAL + '#/isi/absensi');
   await page.waitForSelector('.baris-kisi');
   await page.click('[data-isi-semua="Pengumpul"]');
+  await page.click('[data-isi-semua="Penyuling"]');
   const namaOrang = await page.evaluate(() => JSON.parse(localStorage.getItem('kepuh.konfig')).master.Karyawan.filter(k => k.aktif).map(k => k.nilai.Nama));
   const j = n => namaOrang.indexOf(n);
   await pilih(page, 'b1_o' + j('Pak Muh'), '2 trip');
-  await pilih(page, 'b1_o' + j('Eko'), 'Masuk (upah dari sulingan)');
+  await pilih(page, 'b1_o' + j('Eko'), '2x suling');
   await pilih(page, 'b1_o' + j('Dedi'), 'Libur');
   await pilih(page, 'b2_ada', 'Ya');
   await isi(page, '[name=b2_kerja]', 'Tambal kolam');
@@ -228,9 +230,11 @@ async function simpanDanKonfirmasi(page) {
   const abs = objek('Absensi');
   assert.strictEqual(abs.find(a => a.Nama === 'Rofik').Kehadiran, '1 trip');
   assert.strictEqual(abs.find(a => a.Nama === 'Pak Muh')['Upah absensi (Rp)'], 126000);
+  assert.strictEqual(abs.find(a => a.Nama === 'Eko')['Upah absensi (Rp)'], 180000, '2x suling × Rp90.000');
+  assert.strictEqual(abs.find(a => a.Nama === 'Yanto')['Upah absensi (Rp)'], 100000, '1x suling × Rp100.000');
   assert.strictEqual(abs.find(a => a.Nama === 'Gatot')['Upah kerja lain (Rp)'], 50000);
   assert.ok(!abs.find(a => a.Nama === 'Bambang'), 'karyawan keluar tidak muncul');
-  cek('absensi dengan isi cepat dan kerja lain tersimpan');
+  cek('absensi: semua upah dari absensi, suling = n × upah per sulingan orangnya');
 
   console.log('Ambil bahan, saring, penjualan, kas');
   await page.goto(ASAL + '#/isi/ambil');

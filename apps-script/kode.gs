@@ -19,7 +19,7 @@
 // otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Sembada Kepuh".
 // =====================================================================
 
-var KP_VERSI = 3;
+var KP_VERSI = 4;
 // ID Google Sheet "Catatan Sembada Kepuh". Dipakai kalau Apps Script ini dibuat terpisah
 // (bukan dari menu Ekstensi di Sheet). Kosongkan kalau kode ditempel lewat Ekstensi > Apps Script.
 var KP_ID_SHEET = '1VYCYBaB6tcLnE9iurCG1ZVWrlHJWv-KsPxAdp4Jmp7k';
@@ -39,7 +39,7 @@ var TAB_DATA = {
     'Uang dibawa (Rp)', 'Uang sisa (Rp)', 'Biaya lain di jalan (Rp)', 'Keterangan biaya lain', 'Keterangan',
     'Uang beli bahan (Rp)', 'Harga bahan per kg (Rp)'],
   'Produksi Suling': ['ID', 'Waktu kirim', 'Dicatat oleh', 'Tanggal', 'Alat suling', 'Operator', 'Jumlah sulingan', 'Kondisi alat',
-    'Keterangan', 'Upah per sulingan (Rp)', 'Upah (Rp)', 'ID isian'],
+    'Keterangan', 'ID isian'],
   'Saring Minyak': ['ID', 'Waktu kirim', 'Dicatat oleh', 'Tanggal saring', 'Alat suling', 'Produk', 'Jumlah sulingan yang disaring', 'Minyak (kg)',
     'Hidrosol diambil (liter)', 'Kondisi bahan', 'Stok minyak di gudang (kg)', 'Keterangan', 'Minyak per sulingan (kg)'],
   'Absensi': ['ID', 'Waktu kirim', 'Dicatat oleh', 'Tanggal', 'Nama', 'Peran', 'Kehadiran', 'Upah absensi (Rp)', 'Pekerjaan lain',
@@ -52,7 +52,7 @@ var TAB_DATA = {
 // Kolom yang dihitung atau diisi otomatis (bukan isian aplikasi).
 var TAB_HITUNG = {
   'Ambil Bahan': ['Uang beli bahan (Rp)', 'Harga bahan per kg (Rp)'],
-  'Produksi Suling': ['Upah per sulingan (Rp)', 'Upah (Rp)', 'ID isian'],
+  'Produksi Suling': ['ID isian'],
   'Saring Minyak': ['Minyak per sulingan (kg)'],
   'Absensi': ['Peran', 'Upah absensi (Rp)', 'ID isian'],
   'Penjualan': ['Satuan', 'Total (Rp)'],
@@ -79,20 +79,21 @@ var MASTER = {
   'Alat Suling': {kunci: 'alat', judul: 'Alat suling', utama: 'Nama alat', kolom: [
     {h: 'Nama alat', j: 'teks', wajib: true, bantuan: 'Contoh: Alat 1, Ketel timur.'},
     {h: 'Operator tetap', j: 'karyawan', bantuan: 'Otomatis terpilih saat mengisi Produksi Suling. Boleh kosong.'},
-    {h: 'Upah per sulingan (Rp)', j: 'rupiah', bantuan: 'Upah borongan operator untuk satu kali suling di alat ini.'},
     {h: 'Kapasitas (kg bahan)', j: 'desimal'},
     {h: 'Catatan', j: 'teks'}]},
   'Karyawan': {kunci: 'karyawan', judul: 'Karyawan', utama: 'Nama', keluar: true, kolom: [
     {h: 'Nama', j: 'teks', wajib: true},
     {h: 'Peran', j: 'pilih', opsi: PERAN_KARYAWAN, wajib: true, bantuan: 'Cadangan bisa dipilih sebagai operator suling maupun pengumpul.'},
+    {h: 'Upah per sulingan (Rp)', j: 'rupiah', bantuan: 'Untuk yang nyuling: upah satu kali suling. Absensi "2x suling" = 2 × angka ini (+ uang makan di tarif).'},
     {h: 'No HP', j: 'teks'},
     {h: 'Tanggal masuk', j: 'tanggal'},
     {h: 'Catatan', j: 'teks'}]},
   'Tarif Upah': {kunci: 'tarif', judul: 'Tarif upah absensi', utama: 'Pilihan', kolom: [
     {h: 'Pilihan', j: 'teks', wajib: true, bantuan: 'Yang dipilih saat absensi, contoh: 1 trip, Kerja harian, Libur.'},
     {h: 'Untuk peran', j: 'pilih', opsi: ['Semua', 'Pengumpul', 'Penyuling'], wajib: true},
-    {h: 'Upah (Rp)', j: 'rupiah', wajib: true},
-    {h: 'Jenis', j: 'pilih', opsi: ['Masuk', 'Tidak masuk'], wajib: true, bantuan: 'Masuk = dihitung sebagai hari kerja.'}]},
+    {h: 'Upah (Rp)', j: 'rupiah', wajib: true, bantuan: 'Untuk pilihan suling: isi uang makan per hari (atau 0). Upah sulingnya ditambah otomatis.'},
+    {h: 'Jenis', j: 'pilih', opsi: ['Masuk', 'Tidak masuk'], wajib: true, bantuan: 'Masuk = dihitung sebagai hari kerja.'},
+    {h: 'Jumlah sulingan', j: 'angka', bantuan: 'Hanya untuk pilihan suling: 1, 2, atau 3. Upahnya ditambah jumlah ini × upah per sulingan orangnya (Kelola > Karyawan). Kosongkan untuk pilihan lain.'}]},
   'Pilihan': {kunci: 'pilihan', judul: 'Daftar pilihan', utama: 'Pilihan', kelompok: 'Daftar', kolom: [
     {h: 'Daftar', j: 'pilih', opsi: DAFTAR_PILIHAN, wajib: true},
     {h: 'Pilihan', j: 'teks', wajib: true}]},
@@ -114,12 +115,13 @@ function kepalaMaster_(tab) {
   return k.concat(['Urutan', 'Aktif']);
 }
 
-// Isi awal. Tarif upah dan upah per sulingan perlu dicek dan disesuaikan pemilik.
+// Isi awal. Tarif upah dan upah per sulingan (di Karyawan) perlu dicek dan disesuaikan pemilik.
 var BENIH = {
-  'Alat Suling': [['Alat 1', '', 0, '', ''], ['Alat 2', '', 0, '', ''], ['Alat 3', '', 0, '', ''], ['Alat 4', '', 0, '', '']],
+  'Alat Suling': [['Alat 1', '', '', ''], ['Alat 2', '', '', ''], ['Alat 3', '', '', ''], ['Alat 4', '', '', '']],
   'Karyawan': [],
-  'Tarif Upah': [['1 trip', 'Pengumpul', 76000, 'Masuk'], ['2 trip', 'Pengumpul', 126000, 'Masuk'],
-    ['Masuk (upah dari sulingan)', 'Penyuling', 0, 'Masuk'], ['Kerja harian', 'Semua', 100000, 'Masuk'],
+  'Tarif Upah': [['1 trip', 'Pengumpul', 76000, 'Masuk', ''], ['2 trip', 'Pengumpul', 126000, 'Masuk', ''],
+    ['1x suling', 'Penyuling', 0, 'Masuk', 1], ['2x suling', 'Penyuling', 0, 'Masuk', 2], ['3x suling', 'Penyuling', 0, 'Masuk', 3],
+    ['Masuk tanpa nyuling', 'Penyuling', 0, 'Masuk', ''], ['Kerja harian', 'Semua', 100000, 'Masuk', ''],
     ['Libur', 'Semua', 0, 'Tidak masuk'], ['Izin', 'Semua', 0, 'Tidak masuk'], ['Sakit', 'Semua', 0, 'Tidak masuk']],
   'Pilihan': [['Kondisi bahan', 'Segar semua'], ['Kondisi bahan', 'Cuma sedikit yang kering'], ['Kondisi bahan', 'Setengah bagian kering'],
     ['Kondisi bahan', 'Agak kering semua'], ['Kondisi alat', 'Normal'], ['Kondisi alat', 'Ketel bocor'], ['Kondisi alat', 'Spiral bocor'],
@@ -183,6 +185,7 @@ function layani_(ss, req) {
 
   var akses = cekSesi_(ss, req.token);
   if (!akses) return {ok: false, kode: 'SESI', galat: 'Sesi sudah berakhir. Silakan masuk lagi.'};
+  migrasiUpah_(ss);
   if (aksi === 'keluar') return keluarSesi_(req.token);
   if (aksi === 'sandiUbah') return sandiUbah_(ss, akses, req);
   if (aksi === 'config') return config_(ss, akses);
@@ -430,6 +433,7 @@ function siapkan_(ss) {
       try { ss.deleteSheet(sh); } catch (e) { /* abaikan */ }
     }
   });
+  migrasiUpah_(ss);
   try { perbaruiLaporan_(ss); } catch (e) { /* laporan menyusul */ }
   try { ss.setActiveSheet(ss.getSheetByName('Ringkasan')); } catch (e) { /* abaikan */ }
   return {dibuat: dibuat, sandi: sandi};
@@ -482,6 +486,65 @@ function perbaruiLaporan() {
 
 function perbaruiLaporanTerjadwal() {
   if (PropertiesService.getScriptProperties().getProperty('laporanKotor')) perbaruiLaporan_(bukaSheet_());
+}
+
+// ---------------------------------------------------------------- PINDAH KE UPAH DARI ABSENSI (versi 4)
+// Sekali jalan untuk Sheet lama: upah per sulingan pindah dari Alat Suling ke operator tetapnya di Karyawan,
+// dan dibuat pilihan absensi "1x/2x/3x suling" (uang makan dari tarif "Masuk (upah dari sulingan)" ikut terbawa).
+function migrasiUpah_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('migrasiUpah') === '1') return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    if (props.getProperty('migrasiUpah') === '1') return;
+    var shK = ss.getSheetByName('Karyawan'), shT = ss.getSheetByName('Tarif Upah'), shA = ss.getSheetByName('Alat Suling');
+    if (!shK || !shT) return;
+    var kK = pastikanKolom_(shK, kepalaMaster_('Karyawan'));
+    var kT = pastikanKolom_(shT, kepalaMaster_('Tarif Upah'));
+
+    if (shA) {
+      var tA = bacaTabel_(shA);
+      var jOp = tA.kepala.indexOf('Operator tetap'), jUp = tA.kepala.indexOf('Upah per sulingan (Rp)');
+      if (jOp >= 0 && jUp >= 0) {
+        var tK = bacaTabel_(shK);
+        var jNama = kK.indexOf('Nama'), jRate = kK.indexOf('Upah per sulingan (Rp)');
+        tA.baris.forEach(function (r) {
+          var op = normalNama_(r[jOp]), up = angka_(r[jUp]);
+          if (!op || !(up > 0)) return;
+          tK.baris.forEach(function (rk, i) {
+            if (normalNama_(rk[jNama]) === op && !(angka_(rk[jRate]) > 0)) { shK.getRange(tK.nomor[i], jRate + 1).setValue(up); rk[jRate] = up; }
+          });
+        });
+      }
+    }
+
+    var tarif = bacaMaster_(ss, 'Tarif Upah');
+    if (!tarif.some(function (t) { return angka_(t.nilai['Jumlah sulingan']) > 0; })) {
+      var lama = tarif.filter(function (t) { return t.nilai['Pilihan'] === 'Masuk (upah dari sulingan)'; })[0];
+      var dasar = lama ? angka_(lama.nilai['Upah (Rp)']) : 0;
+      var posisi = lama ? lama.urutan : tarif.length + 1;
+      var jJumlah = kT.indexOf('Jumlah sulingan');
+      var baru = [];
+      [1, 2, 3].forEach(function (n) {
+        var ada = tarif.filter(function (t) { return normalNama_(t.nilai['Pilihan']) === n + 'x suling'; })[0];
+        if (ada) { shT.getRange(ada.baris, jJumlah + 1).setValue(n); return; }
+        var o = {'ID': idBaru_(), 'Pilihan': n + 'x suling', 'Untuk peran': 'Penyuling', 'Upah (Rp)': dasar, 'Jenis': 'Masuk',
+          'Jumlah sulingan': n, 'Urutan': bulat_(posisi - 0.5 + n * 0.1, 2), 'Aktif': 'Ya'};
+        baru.push(kT.map(function (h) { return o[h] === undefined ? '' : o[h]; }));
+      });
+      if (baru.length) shT.getRange(shT.getLastRow() + 1, 1, baru.length, kT.length).setValues(baru);
+      if (lama && !tarif.some(function (t) { return t.nilai['Pilihan'] === 'Masuk tanpa nyuling'; })) {
+        shT.getRange(lama.baris, kT.indexOf('Pilihan') + 1).setValue('Masuk tanpa nyuling');
+        gantiNamaDiCatatan_(ss, 'Tarif Upah', 'Masuk (upah dari sulingan)', 'Masuk tanpa nyuling');
+      }
+    }
+    catatLog_(ss, 'Pindah ke upah dari absensi', 'Tarif Upah', '', '', 'versi ' + KP_VERSI, 'sistem');
+    props.setProperty('migrasiUpah', '1');
+    tandaiLaporanKotor_();
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ---------------------------------------------------------------- PENGGUNA & SESI
@@ -777,7 +840,7 @@ function masterSimpan_(ss, akses, req) {
       var c = def.kolom[i];
       var v = req.nilai ? req.nilai[c.h] : '';
       if (v === undefined || v === null) v = '';
-      if (c.j === 'rupiah' || c.j === 'desimal') v = v === '' ? '' : angka_(v);
+      if (c.j === 'rupiah' || c.j === 'desimal' || c.j === 'angka') v = v === '' ? '' : angka_(v);
       else v = String(v).trim();
       if (c.wajib && v === '') return {ok: false, galat: c.h + ' wajib diisi.'};
       if (c.opsi && v !== '' && c.opsi.indexOf(v) < 0) return {ok: false, galat: c.h + ' tidak dikenal: ' + v};
@@ -795,7 +858,7 @@ function masterSimpan_(ss, akses, req) {
     if (kembar) return {ok: false, galat: '"' + nilai[utama] + '" sudah ada' + (kembar.aktif ? '' : ' (tidak aktif, bisa diaktifkan lagi)') + '.'};
 
     var sh = tab_(ss, tab);
-    var kepala = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); });
+    var kepala = pastikanKolom_(sh, kepalaMaster_(tab));
     if (lama) {
       Object.keys(nilai).forEach(function (h) {
         var j = kepala.indexOf(h);
@@ -968,12 +1031,6 @@ function lengkapiBaris_(tab, o, induk) {
     o['Uang beli bahan (Rp)'] = beli;
     var berat = angka_(o['Berat bahan (kg)']);
     o['Harga bahan per kg (Rp)'] = berat > 0 ? bulat_(beli / berat, 0) : '';
-  } else if (tab === 'Produksi Suling') {
-    var alat = induk.alat[o['Alat suling']];
-    if (o['Upah per sulingan (Rp)'] === undefined || o['Upah per sulingan (Rp)'] === '') {
-      o['Upah per sulingan (Rp)'] = alat ? angka_(alat['Upah per sulingan (Rp)']) : 0;
-    }
-    o['Upah (Rp)'] = angka_(o['Jumlah sulingan']) * angka_(o['Upah per sulingan (Rp)']);
   } else if (tab === 'Saring Minyak') {
     if (!o['Produk'] && induk.bawaan) o['Produk'] = induk.bawaan.minyak;
     var n = angka_(o['Jumlah sulingan yang disaring']);
@@ -982,8 +1039,7 @@ function lengkapiBaris_(tab, o, induk) {
     var k = induk.karyawan[o['Nama']];
     o['Peran'] = k ? k['Peran'] : (o['Peran'] || '');
     if (o['Upah absensi (Rp)'] === undefined || o['Upah absensi (Rp)'] === '') {
-      var t = induk.tarif[o['Kehadiran']];
-      o['Upah absensi (Rp)'] = o['Kehadiran'] ? (t ? angka_(t['Upah (Rp)']) : 0) : '';
+      o['Upah absensi (Rp)'] = o['Kehadiran'] ? upahAbsensi_(induk.tarif[o['Kehadiran']], k) : '';
     }
   } else if (tab === 'Penjualan') {
     var p = induk.produk[o['Produk']];
@@ -996,9 +1052,15 @@ function lengkapiBaris_(tab, o, induk) {
   return o;
 }
 
+// Semua upah dari absensi: upah tarif (+ jumlah sulingan × upah per sulingan orangnya untuk pilihan suling).
+function upahAbsensi_(tarif, karyawan) {
+  if (!tarif) return 0;
+  var n = angka_(tarif['Jumlah sulingan']);
+  return angka_(tarif['Upah (Rp)']) + (n > 0 && karyawan ? n * angka_(karyawan['Upah per sulingan (Rp)']) : 0);
+}
+
 function indukUntuk_(ss, tab) {
   var induk = {};
-  if (tab === 'Produksi Suling') induk.alat = petaMaster_(ss, 'Alat Suling');
   if (tab === 'Absensi') { induk.karyawan = petaMaster_(ss, 'Karyawan'); induk.tarif = petaMaster_(ss, 'Tarif Upah'); }
   if (tab === 'Penjualan') induk.produk = petaMaster_(ss, 'Produk');
   if (tab === 'Saring Minyak') induk.bawaan = produkBawaan_(bacaMaster_(ss, 'Produk'));
@@ -1204,8 +1266,7 @@ function ubah_(ss, akses, req) {
     Object.keys(lama).forEach(function (h) { o[h] = lama[h]; });
     Object.keys(nilai).forEach(function (h) { o[h] = ubahNilai_(h, nilai[h]); });
     // Hitungan ikut tarif saat ini hanya kalau sumbernya berubah.
-    if (tab === 'Produksi Suling' && o['Alat suling'] !== lama['Alat suling']) o['Upah per sulingan (Rp)'] = '';
-    if (tab === 'Absensi' && o['Kehadiran'] !== lama['Kehadiran']) o['Upah absensi (Rp)'] = '';
+    if (tab === 'Absensi' && (o['Kehadiran'] !== lama['Kehadiran'] || o['Nama'] !== lama['Nama'])) o['Upah absensi (Rp)'] = '';
     if (tab === 'Penjualan' && o['Produk'] !== lama['Produk']) o['Satuan'] = '';
     if (TAB_KELOMPOK[tab]) {
       var kunciNama = tab === 'Absensi' ? 'Nama' : 'Alat suling';
@@ -1284,13 +1345,13 @@ function selisihHari_(a, b) {
 
 function angkaKosong_() {
   return {trip: 0, bahanKg: 0, beliBahan: 0, biayaJalan: 0, sulingan: 0, sulinganDisaring: 0, minyak: 0, hidrosol: 0,
-    upahAbsensi: 0, upahSuling: 0, upahLain: 0, operasional: 0, kasMasukLain: 0, kasKeluarLain: 0,
+    upahAbsensi: 0, upahLain: 0, operasional: 0, kasMasukLain: 0, kasKeluarLain: 0,
     terjualKg: 0, penjualan: 0, belumLunas: 0};
 }
 
 function turunan_(a) {
   a.hargaBahan = a.bahanKg > 0 ? bulat_(a.beliBahan / a.bahanKg, 0) : null;
-  a.totalUpah = a.upahAbsensi + a.upahSuling + a.upahLain;
+  a.totalUpah = a.upahAbsensi + a.upahLain;
   a.biayaProduksi = a.beliBahan + a.biayaJalan + a.totalUpah + a.operasional;
   a.minyakPerSulingan = a.sulinganDisaring > 0 ? bulat_(a.minyak / a.sulinganDisaring, 3) : null;
   a.rendemen = a.bahanKg > 0 && a.minyak > 0 ? bulat_(a.minyak / a.bahanKg * 100, 2) : null;
@@ -1331,12 +1392,12 @@ function hitungLaporan_(ss) {
   };
   var alatMinggu = function (mg, nama) {
     var m = mAlat[mg] || (mAlat[mg] = {});
-    return m[nama] || (m[nama] = {nama: nama, sulingan: 0, hari: {}, upah: 0, minyak: 0, disaring: 0, operator: {}});
+    return m[nama] || (m[nama] = {nama: nama, sulingan: 0, hari: {}, minyak: 0, disaring: 0, operator: {}});
   };
   var orangMinggu = function (mg, nama) {
     var m = mOrang[mg] || (mOrang[mg] = {});
     return m[nama] || (m[nama] = {nama: nama, peran: karyawan[nama] ? karyawan[nama]['Peran'] : '', hari: {}, sulingan: 0,
-      upahAbsensi: 0, upahSuling: 0, upahLain: 0});
+      upahAbsensi: 0, upahLain: 0});
   };
 
   d['Ambil Bahan'].forEach(function (r) {
@@ -1350,20 +1411,18 @@ function hitungLaporan_(ss) {
   d['Produksi Suling'].forEach(function (r) {
     var k = tglKunci_(r['Tanggal']);
     if (!k) return;
-    var n = angka_(r['Jumlah sulingan']), upah = angka_(r['Upah (Rp)']);
-    tambah(k, function (a) { a.sulingan += n; a.upahSuling += upah; });
+    var n = angka_(r['Jumlah sulingan']);
+    tambah(k, function (a) { a.sulingan += n; });
     if (!prodMin || k < prodMin) prodMin = k;
     if (!prodMaks || k > prodMaks) prodMaks = k;
     var mg = mingguMulai_(k, awal);
     var al = alatMinggu(mg, String(r['Alat suling']).trim() || '(tanpa nama)');
-    al.sulingan += n; al.upah += upah;
+    al.sulingan += n;
     if (n > 0) al.hari[k] = true;
     var op = String(r['Operator'] || '').trim();
     if (op) {
       al.operator[op] = (al.operator[op] || 0) + n;
-      var or = orangMinggu(mg, op);
-      or.sulingan += n; or.upahSuling += upah;
-      if (n > 0) or.hari[k] = true;
+      orangMinggu(mg, op).sulingan += n;      // hanya informasi; upahnya dari absensi
     }
   });
   d['Saring Minyak'].forEach(function (r) {
@@ -1432,19 +1491,19 @@ function hitungLaporan_(ss) {
     var namaAlat = alatAktif.slice();
     Object.keys(petaAlat).forEach(function (n) { if (namaAlat.indexOf(n) < 0) namaAlat.push(n); });
     a.alat = namaAlat.map(function (n) {
-      var x = petaAlat[n] || {nama: n, sulingan: 0, hari: {}, upah: 0, minyak: 0, disaring: 0, operator: {}};
+      var x = petaAlat[n] || {nama: n, sulingan: 0, hari: {}, minyak: 0, disaring: 0, operator: {}};
       var hariJalan = Object.keys(x.hari).filter(function (k) { return k >= dari && k <= sampai; }).length;
       var op = Object.keys(x.operator).sort(function (p, q) { return x.operator[q] - x.operator[p]; });
       return {nama: n, operator: op.join(', '), sulingan: x.sulingan, hariJalan: Object.keys(x.hari).length,
         hariKosong: Math.max(jumlahHari - hariJalan, 0), minyak: bulat_(x.minyak, 3), disaring: x.disaring,
-        minyakPerSulingan: x.disaring > 0 ? bulat_(x.minyak / x.disaring, 3) : null, upah: x.upah};
+        minyakPerSulingan: x.disaring > 0 ? bulat_(x.minyak / x.disaring, 3) : null};
     });
     a.hariKosong = a.alat.reduce(function (s, x) { return s + x.hariKosong; }, 0);
     var urutPeran = {'Penyuling': 1, 'Pengumpul': 2, 'Cadangan': 3, 'Lainnya': 4};
     a.orang = Object.keys(mOrang[mg] || {}).map(function (n) {
       var o = mOrang[mg][n];
       return {nama: n, peran: o.peran, hariMasuk: Object.keys(o.hari).length, sulingan: o.sulingan, upahAbsensi: o.upahAbsensi,
-        upahSuling: o.upahSuling, upahLain: o.upahLain, total: o.upahAbsensi + o.upahSuling + o.upahLain};
+        upahLain: o.upahLain, total: o.upahAbsensi + o.upahLain};
     }).sort(function (p, q) {
       return (urutPeran[p.peran] || 9) - (urutPeran[q.peran] || 9) || (p.nama < q.nama ? -1 : 1);
     });
@@ -1463,7 +1522,9 @@ function hitungLaporan_(ss) {
 
   var hasil = {hariIni: hariIni, dataSampai: tglMaks, minggu: hasilMinggu, bulan: hasilBulan};
   hasil.stok = hitungStok_(ss);
+  hasil._tarif = bacaMaster_(ss, 'Tarif Upah');
   hasil.peringatan = peringatan_(hasil, alatInduk, bacaMaster_(ss, 'Karyawan'), d);
+  delete hasil._tarif;
   return hasil;
 }
 
@@ -1475,6 +1536,45 @@ function bulanBerikut_(bl) {
 
 function rp_(n) { return 'Rp' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
+// Upah dari absensi, jadi dicek dengan Produksi Suling minggu ini: operator yang nyuling tapi belum diabsen,
+// atau jumlah sulingan di absensi beda dengan yang tercatat di produksi.
+function cocokkanAbsensiSuling_(h, d) {
+  var ini = h.minggu[0];
+  if (!ini) return [];
+  var dari = ini.mulai, sampai = ini.sampai;
+  var tarif = {};
+  (h._tarif || []).forEach(function (t) { tarif[t.nilai['Pilihan']] = angka_(t.nilai['Jumlah sulingan']); });
+  var prod = {}, tglProd = {};
+  d['Produksi Suling'].forEach(function (r) {
+    var k = tglKunci_(r['Tanggal']), op = String(r['Operator'] || '').trim();
+    if (!k || k < dari || k > sampai) return;
+    tglProd[k] = true;
+    if (!op) return;
+    prod[k + '|' + op] = (prod[k + '|' + op] || 0) + angka_(r['Jumlah sulingan']);
+  });
+  var abs = {};
+  d['Absensi'].forEach(function (r) {
+    var k = tglKunci_(r['Tanggal']), nama = String(r['Nama'] || '').trim();
+    if (!k || k < dari || k > sampai || !nama || !r['Kehadiran']) return;
+    abs[k + '|' + nama] = tarif[r['Kehadiran']] || 0;
+  });
+  var belum = [], beda = [];
+  var label = function (key) { var b = key.split('|'); return b[1] + ' ' + tglIndo_(b[0]).slice(0, 5); };
+  Object.keys(prod).sort().forEach(function (key) {
+    if (!(prod[key] > 0)) return;
+    if (!(key in abs)) belum.push(label(key));
+    else if (abs[key] !== prod[key]) beda.push(label(key) + ' (absen ' + abs[key] + 'x, produksi ' + prod[key] + 'x)');
+  });
+  Object.keys(abs).sort().forEach(function (key) {
+    if (abs[key] > 0 && !(key in prod) && tglProd[key.split('|')[0]]) beda.push(label(key) + ' (absen ' + abs[key] + 'x, produksi 0x)');
+  });
+  var out = [];
+  var ringkas = function (a) { return a.slice(0, 5).join(', ') + (a.length > 5 ? ', dan ' + (a.length - 5) + ' lagi' : ''); };
+  if (belum.length) out.push({status: 'ISI', hal: 'Operator suling belum diabsen', nilai: ringkas(belum), saran: 'Upahnya belum terhitung. Isi Absensi untuk tanggal itu.'});
+  if (beda.length) out.push({status: 'PERHATIAN', hal: 'Jumlah sulingan absensi beda dengan produksi', nilai: ringkas(beda), saran: 'Cek mana yang benar, lalu ubah lewat Riwayat.'});
+  return out;
+}
+
 function peringatan_(h, alatInduk, karyawan, d) {
   var out = [];
   var ini = h.minggu[0];
@@ -1482,12 +1582,13 @@ function peringatan_(h, alatInduk, karyawan, d) {
   if (!karyawan.some(function (k) { return k.aktif; })) {
     out.push({status: 'ISI', hal: 'Daftar karyawan masih kosong', nilai: '', saran: 'Tambahkan karyawan di menu Kelola > Karyawan.'});
   }
-  var tanpaTarif = alatInduk.filter(function (a) { return a.aktif && !(angka_(a.nilai['Upah per sulingan (Rp)']) > 0); })
-    .map(function (a) { return a.nilai['Nama alat']; });
-  if (tanpaTarif.length) {
-    out.push({status: 'ISI', hal: 'Upah per sulingan belum diisi', nilai: tanpaTarif.join(', '),
-      saran: 'Isi di Kelola > Alat suling, supaya upah borongan operator terhitung.'});
+  var tanpaUpah = karyawan.filter(function (k) { return k.aktif && k.nilai['Peran'] === 'Penyuling' && !(angka_(k.nilai['Upah per sulingan (Rp)']) > 0); })
+    .map(function (k) { return k.nilai['Nama']; });
+  if (tanpaUpah.length) {
+    out.push({status: 'ISI', hal: 'Upah per sulingan belum diisi', nilai: tanpaUpah.join(', '),
+      saran: 'Isi di Kelola > Karyawan, supaya absensi "1x/2x/3x suling" terhitung upahnya.'});
   }
+  cocokkanAbsensiSuling_(h, d).forEach(function (p) { out.push(p); });
   if (ini) {
     ini.alat.filter(function (a) { return a.hariKosong >= 2; }).forEach(function (a) {
       out.push({status: 'PERHATIAN', hal: a.nama + ' tidak jalan minggu ini', nilai: a.hariKosong + ' hari',
@@ -1531,7 +1632,7 @@ function perbaruiLaporan_(ss) {
 var KOLOM_REKAP = [
   ['Trip ambil bahan', 'trip'], ['Bahan masuk (kg)', 'bahanKg'], ['Uang beli bahan (Rp)', 'beliBahan'], ['Harga bahan per kg (Rp)', 'hargaBahan'],
   ['Biaya jalan (Rp)', 'biayaJalan'], ['Sulingan', 'sulingan'], ['Minyak (kg)', 'minyak'], ['Minyak per sulingan (kg)', 'minyakPerSulingan'],
-  ['Rendemen kasar (%)', 'rendemen'], ['Hidrosol (liter)', 'hidrosol'], ['Upah absensi (Rp)', 'upahAbsensi'], ['Upah suling (Rp)', 'upahSuling'],
+  ['Rendemen kasar (%)', 'rendemen'], ['Hidrosol (liter)', 'hidrosol'], ['Upah absensi (Rp)', 'upahAbsensi'],
   ['Upah kerja lain (Rp)', 'upahLain'], ['Total upah (Rp)', 'totalUpah'], ['Biaya operasional (Rp)', 'operasional'],
   ['Biaya produksi (Rp)', 'biayaProduksi'], ['Biaya per kg minyak (Rp)', 'biayaPerKg'], ['Minyak terjual (kg)', 'terjualKg'],
   ['Penjualan (Rp)', 'penjualan'], ['Belum lunas (Rp)', 'belumLunas'], ['Laba usaha (Rp)', 'laba'],
@@ -1567,21 +1668,21 @@ function tulisLaporan_(ss, h) {
   var upah = [];
   h.minggu.forEach(function (m) {
     m.orang.forEach(function (o) {
-      upah.push([tgl(m.mulai), tgl(m.sampai), o.nama, o.peran, o.hariMasuk, o.sulingan, o.upahAbsensi, o.upahSuling, o.upahLain, o.total]);
+      upah.push([tgl(m.mulai), tgl(m.sampai), o.nama, o.peran, o.hariMasuk, o.sulingan, o.upahAbsensi, o.upahLain, o.total]);
     });
   });
-  isiTabLaporan_(ss, 'Upah Mingguan', ['Minggu mulai', 'Sampai', 'Nama', 'Peran', 'Hari kerja', 'Sulingan', 'Upah absensi (Rp)',
-    'Upah suling (Rp)', 'Upah kerja lain (Rp)', 'Total upah (Rp)'], upah);
+  isiTabLaporan_(ss, 'Upah Mingguan', ['Minggu mulai', 'Sampai', 'Nama', 'Peran', 'Hari kerja', 'Sulingan (dari Produksi)', 'Upah absensi (Rp)',
+    'Upah kerja lain (Rp)', 'Total upah (Rp)'], upah);
 
   var alat = [];
   h.minggu.forEach(function (m) {
     m.alat.forEach(function (a) {
       alat.push([tgl(m.mulai), tgl(m.sampai), a.nama, a.operator, a.sulingan, a.hariJalan, a.hariKosong, a.minyak, a.disaring,
-        nilai(a.minyakPerSulingan), a.upah]);
+        nilai(a.minyakPerSulingan)]);
     });
   });
   isiTabLaporan_(ss, 'Rekap Alat', ['Minggu mulai', 'Sampai', 'Alat suling', 'Operator', 'Sulingan', 'Hari jalan', 'Hari kosong',
-    'Minyak disaring (kg)', 'Sulingan disaring', 'Minyak per sulingan (kg)', 'Upah (Rp)'], alat);
+    'Minyak disaring (kg)', 'Sulingan disaring', 'Minyak per sulingan (kg)'], alat);
 
   // Tab Ringkasan: angka minggu ini, bulan ini, dan peringatan.
   var sh = ss.getSheetByName('Ringkasan') || ss.insertSheet('Ringkasan');

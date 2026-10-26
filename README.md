@@ -5,7 +5,8 @@ Konsepnya sama dengan Catatan Sembada, tetapi semua catatan masuk ke **Google Sh
 
 ## Yang berbeda dari Catatan Sembada
 
-- **Alat suling bisa ditambah, dikurangi, dan diurutkan** dari aplikasi (Kelola > Alat suling). Upah borongan per sulingan diatur per alat.
+- **Alat suling bisa ditambah, dikurangi, dan diurutkan** dari aplikasi (Kelola > Alat suling).
+- **Semua upah dihitung dari Absensi.** Operator suling diabsen 1x/2x/3x suling: upahnya = upah di tarif (misalnya uang makan) + jumlah sulingan × upah per sulingan orangnya (Kelola > Karyawan). Produksi Suling hanya mencatat produksi, lalu dicocokkan dengan absensi di Peringatan.
 - **Karyawan bisa ditambah dan ditandai keluar** dari aplikasi (Kelola > Karyawan). Catatan lama tetap utuh; kalau nama diganti, catatan lama ikut diganti.
 - **Masuk dengan nama pengguna dan sandi** masing-masing. Pemilik bisa menambah pengguna lain dan mengatur catatan apa saja yang boleh diisi (Kelola > Pengguna & sandi).
 - **Tampilan dan tata letak bisa diatur** (Kelola > Tampilan & tata letak): warna, mode gelap, ukuran huruf, bentuk sudut, kerapatan, susunan beranda, angka ringkasan, urutan/nama/tampil menu, serta urutan dan isian formulir yang disembunyikan. Ukuran huruf dan mode gelap juga bisa diatur per HP.
@@ -29,7 +30,7 @@ Konsepnya sama dengan Catatan Sembada, tetapi semua catatan masuk ke **Google Sh
    Akun pemilik: **wildan**. Sandi sementaranya tertulis di tab **Pengaturan** (diminta diganti saat pertama masuk).
 4. **Terapkan > Deployment baru > Aplikasi web**. Jalankan sebagai: *Saya*. Yang memiliki akses: *Siapa saja*.
    Salin alamat yang berakhiran `/exec` ke `docs/config.js` (`API_URL`).
-5. Di aplikasi: Kelola > Karyawan (masukkan semua karyawan), Kelola > Alat suling (operator tetap dan upah per sulingan), lalu cek Kelola > Tarif upah absensi.
+5. Di aplikasi: Kelola > Karyawan (masukkan semua karyawan dan upah per sulingan untuk yang nyuling), Kelola > Alat suling (operator tetap), lalu cek Kelola > Tarif upah absensi.
 
 ## Memperbarui
 
