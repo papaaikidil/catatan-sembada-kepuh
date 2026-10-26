@@ -12,6 +12,7 @@ Konsepnya sama dengan Catatan Sembada, tetapi semua catatan masuk ke **Google Sh
 - **Tampilan dan tata letak bisa diatur** (Kelola > Tampilan & tata letak): warna, mode gelap, ukuran huruf, bentuk sudut, kerapatan, susunan beranda, angka ringkasan, urutan/nama/tampil menu, serta urutan dan isian formulir yang disembunyikan. Ukuran huruf dan mode gelap juga bisa diatur per HP.
 - **Produksi Suling** diisi sekali sehari untuk semua alat (jumlah sulingan, operator, kondisi alat). **Absensi** diisi sekali sehari untuk semua karyawan, dengan tombol "isi semua" per kelompok.
 - **Laporan dihitung otomatis** ke tab Ringkasan, Rekap Mingguan, Rekap Bulanan, Upah Mingguan, dan Rekap Alat.
+- **Peringatan seperti Sembada Sukorejo**: semua hal yang dipantau selalu tampil dengan nilai, batas, status (Aman / PERHATIAN / TAGIH / ISI / PERBAIKI / BACA), dan saran; yang perlu ditangani di atas, tiap baris bisa diketuk untuk rinciannya. Yang dipantau: absensi operator vs produksi, upah per sulingan, harga bahan, rendemen, minyak per sulingan tiap alat, hari alat kosong, laba minggu lalu, biaya per kg minyak, pangsa pembeli terbesar, uang keluar di luar produksi (jatah bulanan), penjualan belum dibayar, catatan tidak biasa, kas tanpa kategori, dan stok minyak. Batas tiap hal diatur pemilik di Kelola > Batas peringatan.
 
 ## Isi repo
 

@@ -46,7 +46,7 @@ function buatSheet(nama) {
         },
         setValue(v) { pastikan(row); self.data[row - 1][col - 1] = v; return rg; },
         setNumberFormat(f) { for (let j = 0; j < nc; j++) self.format[col + j] = f; return rg; },
-        setFontWeight() { return rg; }, setBackground() { return rg; }, setFontSize() { return rg; }
+        setFontWeight() { return rg; }, setBackground() { return rg; }, setBackgrounds() { return rg; }, setFontSize() { return rg; }
       };
       return rg;
     },

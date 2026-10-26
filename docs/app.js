@@ -1035,13 +1035,13 @@
     var idx = indeksPilihan(daftar, 'mingguDipilih', function (m) { return m.mulai; });
     var m = daftar[idx], sebelum = daftar[idx + 1];
     konteksRinci.m = m;
-    var perlu = (r.peringatan || []).filter(function (p) { return p.status !== 'Aman'; }).length;
+    var perlu = (r.peringatan || []).filter(perluTangani).length;
     var angka = (t.ringkasAngka || []).filter(function (k) { return ANGKA[k]; });
     return '<div class="kartu"><h2>Ringkasan minggu</h2>' + selectMinggu(daftar, idx) +
       '<p class="sub">' + (idx === 0 ? 'Data sampai ' + esc(tglIndo(r.dataSampai) || '–') : 'Minggu yang sudah lewat') + '</p>' +
       (angka.length ? '<div class="angka-grid">' + angka.map(function (k) { return kotakDari(k, m, sebelum); }).join('') + '</div>' : '') +
       (t.upahBeranda !== false ? htmlUpah(m, idx === 0) : '') +
-      (perlu ? '<button class="status galat" style="margin:12px 0 0" data-ke="#/ringkasan">' + ikon('awan') + perlu + ' hal perlu ditangani</button>' : '') +
+      (perlu ? '<button class="status galat" style="margin:12px 0 0" data-ke="#/ringkasan" data-gulir="bagian-peringatan">' + ikon('awan') + perlu + ' hal perlu ditangani</button>' : '') +
       '<button class="tautan" data-ke="#/ringkasan">Lihat ringkasan lengkap ›</button></div>';
   }
 
@@ -1399,6 +1399,7 @@
     if (!admin()) { location.hash = '#/'; return; }
     var tersimpan = ambil('ringkasan', null);
     kerangka('Ringkasan', 'Dihitung dari Google Sheet', tersimpan ? htmlRingkasan(tersimpan) : '<div class="memuat">Memuat ringkasan…</div>', {aktif: 'ringkasan', muat: true});
+    gulirSetelahTampil();
     var isi = document.querySelector('.isi');
     isi.addEventListener('change', function (ev) {
       if (ev.target.id === 'pilih-minggu') simpan('mingguDipilih', ev.target.value);
@@ -1409,7 +1410,10 @@
     var muat = function () {
       muatRingkasan().then(function (r) {
         if (location.hash !== '#/ringkasan') return;
+        var y = window.scrollY;
         isi.innerHTML = htmlRingkasan(r);
+        window.scrollTo(0, y);
+        gulirSetelahTampil();
       }, function (e) {
         if (location.hash !== '#/ringkasan') return;
         if (!tersimpan) isi.innerHTML = '<div class="galat-kartu">' + esc(e.message) + '</div>';
@@ -1422,12 +1426,6 @@
 
   function htmlRingkasan(r) {
     if (!r || !r.minggu) return '';
-    var p = (r.peringatan || []).map(function (x) {
-      var kelas = x.status === 'Aman' ? 'aman' : (x.status === 'ISI' ? 'isi' : 'perlu');
-      return '<div class="peringatan"><span class="chip-status ' + kelas + '">' + esc(x.status || '–') + '</span><div><p>' + esc(x.hal) +
-        (x.nilai ? ': <b>' + esc(x.nilai) + '</b>' : '') + '</p>' + (x.saran ? '<p class="saran">' + esc(x.saran) + '</p>' : '') + '</div></div>';
-    }).join('');
-
     var dm = r.minggu;
     var im = indeksPilihan(dm, 'mingguDipilih', function (m) { return m.mulai; });
     var m = dm[im], ms = dm[im + 1];
@@ -1454,8 +1452,57 @@
     var stok = r.stok ? '<div id="kotak-stok" data-lengkap="1">' + htmlStok(r.stok, true) + '</div>'
       : '<div class="pratinjau awas">' + esc(PESAN_STOK_LAMA) + '</div>';
     return '<p class="sub" style="margin:0 0 12px;color:var(--teks-2)">Data sampai ' + esc(tglIndo(r.dataSampai) || '–') + '. Rincian lengkap ada di tab Rekap pada Google Sheet.</p>' +
-      stok + minggu + bulan + '<div class="judul-bagian">Peringatan (kondisi terbaru)</div><div class="kartu">' + (p || '<div class="kosong">Tidak ada peringatan.</div>') +
+      stok + minggu + bulan + htmlPeringatan(r);
+  }
+
+  // ------------------------------------------------------------ peringatan (seperti Sembada Sukorejo)
+  // Semua hal yang dipantau selalu tampil: status, nilai, batas, dan saran. Yang perlu ditangani di atas.
+  function perluTangani(p) { return !!p && !!p.status && p.status !== 'Aman' && p.status !== '–'; }
+  function kelasStatus(s) {
+    if (s === 'Aman') return 'aman';
+    if (s === 'ISI' || s === 'PERBAIKI') return 'isi';
+    if (s === 'BACA') return 'baca';
+    if (!s || s === '–') return 'netral';
+    return 'perlu';
+  }
+  function chipStatus(s) { return '<span class="chip-status ' + kelasStatus(s) + '">' + esc(s || '–') + '</span>'; }
+  function htmlPeringatan(r) {
+    var daftar = r.peringatan || [];
+    konteksRinci.peringatan = daftar;
+    var n = daftar.filter(perluTangani).length;
+    var baris = daftar.map(function (x, i) {
+      return '<button type="button" class="peringatan' + (perluTangani(x) ? '' : ' tenang') + '" data-pr="' + i + '">' +
+        '<span class="isi-pr"><span class="hal-pr">' + esc(x.hal) + '</span>' +
+        '<span class="nilai-pr">' + chipStatus(x.status) + '<b>' + esc(x.nilai || '–') + '</b>' + (x.batas ? '<span>Batas ' + esc(x.batas) + '</span>' : '') + '</span>' +
+        (x.saran ? '<span class="saran">' + esc(x.saran) + '</span>' : '') + '</span>' +
+        '<span class="panah-pr" aria-hidden="true">›</span></button>';
+    }).join('');
+    return '<div class="judul-bagian" id="bagian-peringatan">Peringatan – ' + (n ? n + ' hal perlu ditangani' : 'semua aman') + '</div>' +
+      '<div class="kartu kartu-peringatan"><p class="sub">Selalu kondisi terbaru, tidak ikut pilihan minggu. Ketuk untuk melihat rinciannya.</p>' +
+      (baris || '<div class="kosong">Tidak ada peringatan.</div>') +
       (pemilik() ? '<button class="tautan" data-ke="#/batas">Atur batas peringatan ›</button>' : '') + '</div>';
+  }
+  function bukaPeringatan(i) {
+    var x = (konteksRinci.peringatan || [])[i];
+    if (!x) return;
+    var rinci = (x.rinci || []).map(function (y) {
+      return '<div class="baris-angka' + (y.total ? ' total' : '') + '"><span>' + esc(y.a) + (y.c ? '<small>' + esc(y.c) + '</small>' : '') + '</span><b>' + esc(y.b || '') + '</b></div>';
+    }).join('');
+    var isi = '<div class="pr-status">' + chipStatus(x.status) + (x.batas ? '<span>Batas: <b>' + esc(x.batas) + '</b></span>' : '') + '</div>' +
+      (rinci ? '<div>' + rinci + '</div>' : '') +
+      (x.rinciLebih ? '<p class="catatan">Dan ' + x.rinciLebih + ' lagi.</p>' : '') +
+      (pemilik() && x.k && x.k !== 'karyawan' ? '<button class="tautan" data-ke="#/batas" data-gulir="bt-kartu-' + esc(x.k) + '">Atur batas ini ›</button>' : '');
+    lembarRinci(x.hal, 'Peringatan · kondisi terbaru', x.nilai || '–', x.saran || '', isi);
+  }
+  // Setelah pindah layar, gulir ke bagian tertentu (mis. dari tombol "3 hal perlu ditangani" di Beranda).
+  var gulirKe = null;
+  function gulirSetelahTampil() {
+    if (!gulirKe) return;
+    var el = document.getElementById(gulirKe);
+    if (!el) return;
+    gulirKe = null;
+    el.scrollIntoView({block: 'start'});
+    el.classList.add('sorot');
   }
 
   // ------------------------------------------------------------ bidang formulir
@@ -2229,7 +2276,7 @@
       isi += '<div class="judul-bagian">Aplikasi</div>' +
         kartu('#/pengguna', 'Pengguna & sandi', 'kunci', 'Tambah orang lain dengan nama pengguna dan sandi sendiri') +
         kartu('#/tampilan', 'Tampilan & tata letak', 'palet', 'Warna, ukuran huruf, urutan menu dan isian formulir') +
-        kartu('#/batas', 'Batas peringatan', 'awan', 'Kapan peringatan muncul di Ringkasan') +
+        kartu('#/batas', 'Batas peringatan', 'awan', 'Batas tiap hal yang dipantau di Ringkasan') +
         '<div class="kartu"><div class="bidang" style="margin:0"><span class="label">Awal minggu untuk rekap & gajian</span>' +
         '<select class="masukan" id="awal-minggu">' + HARI.map(function (h) {
           return '<option' + (konfig.pengaturan && konfig.pengaturan.awalMinggu === h ? ' selected' : '') + '>' + h + '</option>';
@@ -2498,46 +2545,67 @@
   }
 
   // ------------------------------------------------------------ layar: batas peringatan (pemilik)
+  // Urutan dan isi sama dengan BATAS_ATURAN di kode.gs.
   var ATURAN_BATAS = [
-    {k: 'alatKosong', judul: 'Alat suling tidak jalan', ket: 'Muncul kalau satu alat tidak nyuling sebanyak ini dalam seminggu.',
-      isian: [{f: 'hari', label: 'Kosong minimal', satuan: 'hari', jenis: 'bulat'}]},
-    {k: 'cocokAbsensi', judul: 'Absensi suling tidak cocok dengan produksi',
-      ket: 'Operator tercatat nyuling di Produksi tapi belum diabsen, atau jumlah sulingannya beda.'},
-    {k: 'upahSuling', judul: 'Upah per sulingan belum diisi', ket: 'Penyuling yang belum punya upah per sulingan di Kelola > Karyawan.'},
-    {k: 'belumLunas', judul: 'Penjualan belum lunas', ket: 'Muncul kalau total yang belum dibayar mencapai batas ini.',
-      isian: [{f: 'minimal', label: 'Mulai dari', satuan: 'Rp', jenis: 'rupiah'},
-        {f: 'lewatHari', label: 'Hanya yang sudah lewat', satuan: 'hari', jenis: 'bulat', bantuan: 'Isi 0 supaya semua penjualan belum lunas dihitung.'}]},
-    {k: 'minyakTurun', judul: 'Minyak per sulingan turun', ket: 'Dibanding rata-rata 4 minggu sebelumnya.',
-      isian: [{f: 'persen', label: 'Turun lebih dari', satuan: '%', jenis: 'bulat'}]},
-    {k: 'hargaNaik', judul: 'Harga bahan naik', ket: 'Dibanding harga bahan per kg minggu lalu, atau di atas harga tertentu.',
-      isian: [{f: 'persen', label: 'Naik lebih dari', satuan: '%', jenis: 'bulat'},
-        {f: 'maksimal', label: 'Atau di atas', satuan: 'Rp/kg', jenis: 'rupiah', bantuan: 'Isi 0 kalau tidak dipakai.'}]},
-    {k: 'stokMinus', judul: 'Stok minus', ket: 'Biasanya karena ada saring yang belum dicatat.'},
-    {k: 'stokRendah', judul: 'Stok minyak menipis', ket: 'Untuk produk dengan satuan kg.',
-      isian: [{f: 'kg', label: 'Di bawah', satuan: 'kg', jenis: 'desimal'}]}
+    {k: 'cocokAbsensi', judul: 'Absensi operator suling vs Produksi Suling',
+      ket: 'Operator yang tercatat nyuling di Produksi tapi belum diabsen, atau jumlah sulingannya beda.',
+      isian: [{f: 'hari', label: 'Periksa', satuan: 'hari terakhir', jenis: 'bulat', bantuan: '1 sampai 31 hari. Minggu berjalan selalu ikut diperiksa.'}]},
+    {k: 'upahSuling', judul: 'Penyuling tanpa upah per sulingan', ket: 'Penyuling yang belum punya upah per sulingan di Kelola > Karyawan.'},
+    {k: 'hargaBahan', judul: 'Harga bahan per kg', ket: '7 hari terakhir dibanding rata-rata 4 minggu sebelumnya.',
+      isian: [{f: 'persen', label: 'Perhatian kalau naik lebih dari', satuan: '%', jenis: 'bulat'},
+        {f: 'maksimal', label: 'Atau harganya di atas', satuan: 'Rp/kg', jenis: 'rupiah', bantuan: 'Isi 0 kalau tidak dipakai.'}]},
+    {k: 'rendemen', judul: 'Rendemen', ket: 'Minyak dibagi bahan, 4 minggu terakhir dibanding 4 minggu sebelumnya.',
+      isian: [{f: 'persen', label: 'Perhatian kalau turun lebih dari', satuan: '%', jenis: 'bulat'}]},
+    {k: 'alatRendah', judul: 'Minyak per sulingan tiap alat', ket: 'Alat dengan hasil terendah dibanding rata-rata semua alat, 4 minggu terakhir.',
+      isian: [{f: 'persen', label: 'Perhatian kalau lebih rendah dari', satuan: '%', jenis: 'bulat'}]},
+    {k: 'alatKosong', judul: 'Hari alat kosong minggu berjalan', ket: 'Hari alat suling tidak nyuling, dihitung per alat.',
+      isian: [{f: 'hari', label: 'Perhatian mulai', satuan: 'hari', jenis: 'bulat', bantuan: '1 sampai 7 hari.'}]},
+    {k: 'laba', judul: 'Laba usaha minggu penuh terakhir', ket: 'Penjualan dikurangi biaya produksi minggu lalu.',
+      isian: [{f: 'minimal', label: 'Perhatian kalau di bawah', satuan: 'Rp', jenis: 'rupiahMinus', bantuan: 'Boleh minus, misalnya -500.000.'}]},
+    {k: 'biayaKg', judul: 'Biaya per kg minyak', ket: 'Minggu penuh terakhir dibanding rata-rata 4 minggu sebelumnya.',
+      isian: [{f: 'persen', label: 'Perhatian kalau naik lebih dari', satuan: '%', jenis: 'bulat'}]},
+    {k: 'pembeli', judul: 'Pangsa pembeli terbesar', ket: 'Bagian penjualan ke satu pembeli. Makin besar, makin berisiko kalau pembeli itu berhenti.',
+      isian: [{f: 'persen', label: 'Perhatian kalau lebih dari', satuan: '%', jenis: 'bulat'},
+        {f: 'hari', label: 'Dihitung dari', satuan: 'hari terakhir', jenis: 'bulat', bantuan: '7 sampai 365 hari.'}]},
+    {k: 'luarProduksi', judul: 'Uang keluar di luar produksi bulan ini', ket: 'Kas keluar dengan kategori yang tidak masuk biaya produksi, misalnya Diambil pemilik.',
+      isian: [{f: 'jatah', label: 'Jatah per bulan', satuan: 'Rp', jenis: 'rupiah', bantuan: 'Isi 0 kalau belum mau dipantau.'}]},
+    {k: 'belumLunas', judul: 'Penjualan belum dibayar', ket: 'Status TAGIH kalau total yang belum dibayar lebih dari batas ini.',
+      isian: [{f: 'minimal', label: 'Tagih kalau lebih dari', satuan: 'Rp', jenis: 'rupiah'},
+        {f: 'lewatHari', label: 'Hanya yang sudah lewat', satuan: 'hari', jenis: 'bulat', bantuan: 'Isi 0 supaya semua penjualan belum dibayar dihitung. Kalau pembeli biasa bayar seminggu kemudian, isi 7.'}]},
+    {k: 'catatan', judul: 'Catatan tidak biasa', ket: 'Catatan yang diberi keterangan, dan kondisi alat yang tidak normal.',
+      isian: [{f: 'hari', label: 'Dihitung dari', satuan: 'hari terakhir', jenis: 'bulat'},
+        {f: 'jumlah', label: 'Baca kalau lebih dari', satuan: 'catatan', jenis: 'bulat'}]},
+    {k: 'kasKategori', judul: 'Catatan kas tanpa kategori', ket: 'Kategorinya kosong atau sudah tidak ada di daftar.'},
+    {k: 'stok', judul: 'Stok minyak di gudang', ket: 'Stok minus selalu diberi tanda.',
+      isian: [{f: 'kg', label: 'Perhatian kalau di bawah', satuan: 'kg', jenis: 'desimal', bantuan: 'Isi 0 supaya hanya stok minus yang diberi tanda.'}]}
   ];
-  var BATAS_BAWAAN = {alatKosong: {aktif: true, hari: 2}, cocokAbsensi: {aktif: true}, upahSuling: {aktif: true},
-    belumLunas: {aktif: true, minimal: 1, lewatHari: 0}, minyakTurun: {aktif: true, persen: 15},
-    hargaNaik: {aktif: true, persen: 15, maksimal: 0}, stokMinus: {aktif: true}, stokRendah: {aktif: false, kg: 5}};
+  var BATAS_BAWAAN = {cocokAbsensi: {aktif: true, hari: 7}, upahSuling: {aktif: true}, hargaBahan: {aktif: true, persen: 15, maksimal: 0},
+    rendemen: {aktif: true, persen: 20}, alatRendah: {aktif: true, persen: 20}, alatKosong: {aktif: true, hari: 2}, laba: {aktif: true, minimal: 0},
+    biayaKg: {aktif: true, persen: 20}, pembeli: {aktif: true, persen: 80, hari: 90}, luarProduksi: {aktif: true, jatah: 0},
+    belumLunas: {aktif: true, minimal: 0, lewatHari: 0}, catatan: {aktif: true, hari: 14, jumlah: 0}, kasKategori: {aktif: true}, stok: {aktif: true, kg: 0}};
 
   function layarBatas() {
     if (!pemilik()) { location.hash = '#/kelola'; return; }
-    var baru = !!(konfig && konfig.versiApi >= 6 && konfig.pengaturan && konfig.pengaturan.batas);
-    var batas = salin(baru ? konfig.pengaturan.batas : BATAS_BAWAAN);
+    var baru = !!(konfig && konfig.versiApi >= 7 && konfig.pengaturan && konfig.pengaturan.batas);
+    var batas = salin(BATAS_BAWAAN);
+    if (baru) Object.keys(batas).forEach(function (k) { if (konfig.pengaturan.batas[k]) batas[k] = salin(konfig.pengaturan.batas[k]); });
+    var sekarang = {};
+    ((ambil('ringkasan', null) || {}).peringatan || []).forEach(function (p) { if (p.k && !sekarang[p.k]) sekarang[p.k] = p; });
     var tulis = function () {
-      var html = (baru ? '' : '<div class="pratinjau awas">Pengaturan ini butuh Apps Script versi baru. Tempel ulang kode.gs terbaru di Apps Script, lalu Terapkan > Kelola deployment > Versi baru.</div>') +
-        '<p class="sub" style="margin:0 0 12px;color:var(--teks-2);font-size:.8125rem">Atur kapan peringatan muncul di Ringkasan. Matikan yang tidak perlu supaya peringatan yang penting tidak tenggelam.</p>' +
+      var html = (baru ? '' : '<div class="pratinjau awas">Pengaturan ini butuh Apps Script versi 7. Tempel ulang kode.gs terbaru di Apps Script, lalu Terapkan > Kelola deployment > pensil > Versi baru.</div>') +
+        '<p class="sub" style="margin:0 0 12px;color:var(--teks-2);font-size:.8125rem">Semua hal di bawah selalu tampil di Ringkasan dengan nilai, batas, dan statusnya. Atur batasnya di sini; sembunyikan yang tidak perlu supaya yang penting tidak tenggelam.</p>' +
         ATURAN_BATAS.map(function (a) {
-          var b = batas[a.k], nyala = b.aktif !== false;
-          return '<div class="kartu kartu-batas' + (nyala ? '' : ' mati') + '" data-k="' + a.k + '"><div class="kepala-batas"><div><h2>' + esc(a.judul) + '</h2>' +
+          var b = batas[a.k], nyala = b.aktif !== false, s = sekarang[a.k];
+          return '<div class="kartu kartu-batas' + (nyala ? '' : ' mati') + '" id="bt-kartu-' + a.k + '" data-k="' + a.k + '"><div class="kepala-batas"><div><h2>' + esc(a.judul) + '</h2>' +
             (a.ket ? '<p class="sub">' + esc(a.ket) + '</p>' : '') + '</div>' +
-            '<button type="button" class="saklar' + (nyala ? ' nyala' : '') + '" data-saklar="' + a.k + '">' + (nyala ? 'Aktif' : 'Mati') + '</button></div>' +
+            '<button type="button" class="saklar' + (nyala ? ' nyala' : '') + '" data-saklar="' + a.k + '">' + (nyala ? 'Tampil' : 'Sembunyi') + '</button></div>' +
+            (s && nyala ? '<p class="sekarang-batas">' + chipStatus(s.status) + '<span>Sekarang: <b>' + esc(s.nilai || '–') + '</b></span></p>' : '') +
             (a.isian || []).map(function (x) {
               var v = b[x.f];
-              var tampil = x.jenis === 'desimal' ? String(v).replace('.', ',') : String(v);
+              var tampil = x.jenis === 'desimal' ? String(v).replace('.', ',') : (x.jenis === 'rupiah' || x.jenis === 'rupiahMinus') ? Number(v).toLocaleString('id-ID') : String(v);
               return '<div class="isian-batas"><label for="bt-' + a.k + '-' + x.f + '">' + esc(x.label) + '</label>' +
                 '<div class="masukan-satuan"><input class="masukan" id="bt-' + a.k + '-' + x.f + '" data-k="' + a.k + '" data-f="' + x.f + '" data-jenis="' + x.jenis + '"' +
-                ' inputmode="' + (x.jenis === 'desimal' ? 'decimal' : 'numeric') + '" value="' + esc(tampil) + '"' + (nyala ? '' : ' disabled') + '><span>' + esc(x.satuan) + '</span></div>' +
+                ' inputmode="' + (x.jenis === 'desimal' ? 'decimal' : x.jenis === 'rupiahMinus' ? 'text' : 'numeric') + '" value="' + esc(tampil) + '"' + (nyala ? '' : ' disabled') + '><span>' + esc(x.satuan) + '</span></div>' +
                 (x.bantuan ? '<div class="bantuan">' + esc(x.bantuan) + '</div>' : '') + '</div>';
             }).join('') + '</div>';
         }).join('');
@@ -2564,6 +2632,7 @@
       var salah = '';
       qa(app, 'input[data-f]').forEach(function (el) {
         var v = el.dataset.jenis === 'desimal' ? angkaDesimal(el.value) : angkaBulat(el.value);
+        if (el.dataset.jenis === 'rupiahMinus' && /^\s*[-−]/.test(el.value) && v) v = -v;
         if (isNaN(v)) { if (!salah) salah = 'Isi angka di "' + el.closest('.isian-batas').querySelector('label').textContent + '".'; return; }
         batas[el.dataset.k][el.dataset.f] = v;
       });
@@ -2580,6 +2649,7 @@
         konfig.pengaturan.batas = r.batas || batas; simpan('konfig', konfig);
         buang('ringkasan');
         toast('Batas peringatan disimpan.');
+        gulirKe = 'bagian-peringatan';
         location.hash = '#/ringkasan';
       }, function (e) {
         tombol.disabled = false; tombol.textContent = 'Simpan';
@@ -2587,6 +2657,7 @@
       });
     };
     tulis();
+    gulirSetelahTampil();
   }
 
   // ------------------------------------------------------------ layar: tampilan & tata letak
@@ -2787,7 +2858,14 @@
 
   document.addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-ke]');
-    if (el) { ev.preventDefault(); location.hash = el.dataset.ke; return; }
+    if (el) {
+      ev.preventDefault();
+      gulirKe = el.dataset.gulir || null;
+      if (location.hash === el.dataset.ke) gulirSetelahTampil(); else location.hash = el.dataset.ke;
+      return;
+    }
+    var pr = ev.target.closest('[data-pr]');
+    if (pr) { bukaPeringatan(+pr.dataset.pr); return; }
     if (ev.target.closest('[data-opname]')) { lembarOpname(); return; }
     var r = ev.target.closest('[data-rinci]');
     if (r) { bukaRincian(r.dataset.rinci, r.dataset.per); return; }

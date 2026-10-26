@@ -364,23 +364,47 @@ async function simpanDanKonfirmasi(page) {
   await page.evaluate(() => document.querySelectorAll('.tirai').forEach(t => t.remove()));
   cek('kartu laporan, gaji per orang, dan stok bisa diketuk untuk rincian');
 
+  // peringatan ala Sukorejo: semua hal yang dipantau tampil dengan nilai, batas, dan status
+  await page.waitForSelector('#bagian-peringatan');
+  const pr = await page.evaluate(() => [...document.querySelectorAll('button.peringatan')].map(b => ({
+    status: b.querySelector('.chip-status').textContent, hal: b.querySelector('.hal-pr').textContent, nilai: b.querySelector('.nilai-pr').textContent })));
+  assert.ok(pr.length >= 12, 'semua hal yang dipantau tampil: ' + pr.length);
+  assert.ok(pr.some(x => x.status === 'Aman') && pr.some(x => x.status === 'TAGIH'), JSON.stringify(pr));
+  const perlu = x => x.status !== 'Aman' && x.status !== '–';
+  assert.ok(pr.slice(pr.findIndex(x => !perlu(x))).every(x => !perlu(x)), 'yang perlu ditangani di atas');
+  assert.ok(/^Peringatan – \d+ hal perlu ditangani$/.test(await page.textContent('#bagian-peringatan')));
+  assert.ok(pr.find(x => /Penjualan belum dibayar/.test(x.hal)).nilai.includes('Batas Rp0'));
+  await page.evaluate(() => [...document.querySelectorAll('button.peringatan')].find(b => /Penjualan belum dibayar/.test(b.textContent)).scrollIntoView({ block: 'center' }));
+  await foto(page, '12d-peringatan');
+  await page.evaluate(() => [...document.querySelectorAll('button.peringatan')].find(b => /Penjualan belum dibayar/.test(b.textContent)).click());
+  await page.waitForSelector('.tirai .pr-status');
+  const teksTagih = await page.textContent('.tirai');
+  assert.ok(/PT Haldin/.test(teksTagih) && /Batas: Rp0/.test(teksTagih) && /Tagih/.test(teksTagih), teksTagih);
+  await foto(page, '12e-rincian-peringatan');
+  await page.click('.tirai [data-ke="#/batas"]');
+  await page.waitForSelector('#bt-kartu-belumLunas.sorot');
+  assert.ok(!(await page.$('.tirai')), 'lembar tertutup');
+  cek('peringatan tampil seperti Sukorejo dan tiap baris bisa diketuk');
+
   // batas peringatan
-  assert.ok(/TAGIH/.test(await page.textContent('.isi')));
-  await page.click('[data-ke="#/batas"]');
-  await page.waitForSelector('.kartu-batas');
+  await page.waitForSelector('.kartu-batas .sekarang-batas');
   await page.click('[data-saklar="belumLunas"]');
   await page.waitForSelector('.kartu-batas.mati[data-k="belumLunas"]');
+  assert.strictEqual(await page.textContent('[data-saklar="belumLunas"]'), 'Sembunyi');
   await isi(page, '#bt-alatKosong-hari', '4');
-  await page.click('[data-saklar="stokRendah"]');
-  await isi(page, '#bt-stokRendah-kg', '20,5');
-  await foto(page, '12d-batas-peringatan', true);
+  await isi(page, '#bt-stok-kg', '20,5');
+  await isi(page, '#bt-laba-minimal', '-250.000');
+  await isi(page, '#bt-luarProduksi-jatah', '3.000.000');
+  await foto(page, '12f-batas-peringatan', true);
   await page.click('#batas-simpan');
   await page.waitForFunction(() => location.hash === '#/ringkasan');
   await page.waitForFunction(() => /menipis/.test(document.querySelector('.isi').textContent));
   const teksPer = await page.textContent('.isi');
-  assert.ok(!/TAGIH/.test(teksPer), 'belum lunas dimatikan');
+  assert.ok(!/TAGIH/.test(teksPer) && !/Penjualan belum dibayar/.test(teksPer), 'belum lunas disembunyikan');
+  assert.ok(/Batas 4 hari/.test(teksPer) && /Batas Rp3\.000\.000/.test(teksPer) && /Batas -Rp250\.000/.test(teksPer), teksPer);
   const bt = server.panggil({ aksi: 'config', token }).pengaturan.batas;
-  assert.strictEqual(bt.alatKosong.hari, 4); assert.strictEqual(bt.stokRendah.kg, 20.5); assert.strictEqual(bt.belumLunas.aktif, false);
+  assert.strictEqual(bt.alatKosong.hari, 4); assert.strictEqual(bt.stok.kg, 20.5); assert.strictEqual(bt.belumLunas.aktif, false);
+  assert.strictEqual(bt.laba.minimal, -250000); assert.strictEqual(bt.luarProduksi.jatah, 3000000);
   cek('batas peringatan bisa diatur dan langsung berlaku');
 
   await page.goto(ASAL + '#/terbaru/absensi');
