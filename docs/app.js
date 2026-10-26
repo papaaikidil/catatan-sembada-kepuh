@@ -1454,7 +1454,8 @@
     var stok = r.stok ? '<div id="kotak-stok" data-lengkap="1">' + htmlStok(r.stok, true) + '</div>'
       : '<div class="pratinjau awas">' + esc(PESAN_STOK_LAMA) + '</div>';
     return '<p class="sub" style="margin:0 0 12px;color:var(--teks-2)">Data sampai ' + esc(tglIndo(r.dataSampai) || '–') + '. Rincian lengkap ada di tab Rekap pada Google Sheet.</p>' +
-      stok + minggu + bulan + '<div class="judul-bagian">Peringatan (kondisi terbaru)</div><div class="kartu">' + (p || '<div class="kosong">Tidak ada peringatan.</div>') + '</div>';
+      stok + minggu + bulan + '<div class="judul-bagian">Peringatan (kondisi terbaru)</div><div class="kartu">' + (p || '<div class="kosong">Tidak ada peringatan.</div>') +
+      (pemilik() ? '<button class="tautan" data-ke="#/batas">Atur batas peringatan ›</button>' : '') + '</div>';
   }
 
   // ------------------------------------------------------------ bidang formulir
@@ -2228,6 +2229,7 @@
       isi += '<div class="judul-bagian">Aplikasi</div>' +
         kartu('#/pengguna', 'Pengguna & sandi', 'kunci', 'Tambah orang lain dengan nama pengguna dan sandi sendiri') +
         kartu('#/tampilan', 'Tampilan & tata letak', 'palet', 'Warna, ukuran huruf, urutan menu dan isian formulir') +
+        kartu('#/batas', 'Batas peringatan', 'awan', 'Kapan peringatan muncul di Ringkasan') +
         '<div class="kartu"><div class="bidang" style="margin:0"><span class="label">Awal minggu untuk rekap & gajian</span>' +
         '<select class="masukan" id="awal-minggu">' + HARI.map(function (h) {
           return '<option' + (konfig.pengaturan && konfig.pengaturan.awalMinggu === h ? ' selected' : '') + '>' + h + '</option>';
@@ -2495,6 +2497,98 @@
     });
   }
 
+  // ------------------------------------------------------------ layar: batas peringatan (pemilik)
+  var ATURAN_BATAS = [
+    {k: 'alatKosong', judul: 'Alat suling tidak jalan', ket: 'Muncul kalau satu alat tidak nyuling sebanyak ini dalam seminggu.',
+      isian: [{f: 'hari', label: 'Kosong minimal', satuan: 'hari', jenis: 'bulat'}]},
+    {k: 'cocokAbsensi', judul: 'Absensi suling tidak cocok dengan produksi',
+      ket: 'Operator tercatat nyuling di Produksi tapi belum diabsen, atau jumlah sulingannya beda.'},
+    {k: 'upahSuling', judul: 'Upah per sulingan belum diisi', ket: 'Penyuling yang belum punya upah per sulingan di Kelola > Karyawan.'},
+    {k: 'belumLunas', judul: 'Penjualan belum lunas', ket: 'Muncul kalau total yang belum dibayar mencapai batas ini.',
+      isian: [{f: 'minimal', label: 'Mulai dari', satuan: 'Rp', jenis: 'rupiah'},
+        {f: 'lewatHari', label: 'Hanya yang sudah lewat', satuan: 'hari', jenis: 'bulat', bantuan: 'Isi 0 supaya semua penjualan belum lunas dihitung.'}]},
+    {k: 'minyakTurun', judul: 'Minyak per sulingan turun', ket: 'Dibanding rata-rata 4 minggu sebelumnya.',
+      isian: [{f: 'persen', label: 'Turun lebih dari', satuan: '%', jenis: 'bulat'}]},
+    {k: 'hargaNaik', judul: 'Harga bahan naik', ket: 'Dibanding harga bahan per kg minggu lalu, atau di atas harga tertentu.',
+      isian: [{f: 'persen', label: 'Naik lebih dari', satuan: '%', jenis: 'bulat'},
+        {f: 'maksimal', label: 'Atau di atas', satuan: 'Rp/kg', jenis: 'rupiah', bantuan: 'Isi 0 kalau tidak dipakai.'}]},
+    {k: 'stokMinus', judul: 'Stok minus', ket: 'Biasanya karena ada saring yang belum dicatat.'},
+    {k: 'stokRendah', judul: 'Stok minyak menipis', ket: 'Untuk produk dengan satuan kg.',
+      isian: [{f: 'kg', label: 'Di bawah', satuan: 'kg', jenis: 'desimal'}]}
+  ];
+  var BATAS_BAWAAN = {alatKosong: {aktif: true, hari: 2}, cocokAbsensi: {aktif: true}, upahSuling: {aktif: true},
+    belumLunas: {aktif: true, minimal: 1, lewatHari: 0}, minyakTurun: {aktif: true, persen: 15},
+    hargaNaik: {aktif: true, persen: 15, maksimal: 0}, stokMinus: {aktif: true}, stokRendah: {aktif: false, kg: 5}};
+
+  function layarBatas() {
+    if (!pemilik()) { location.hash = '#/kelola'; return; }
+    var baru = !!(konfig && konfig.versiApi >= 6 && konfig.pengaturan && konfig.pengaturan.batas);
+    var batas = salin(baru ? konfig.pengaturan.batas : BATAS_BAWAAN);
+    var tulis = function () {
+      var html = (baru ? '' : '<div class="pratinjau awas">Pengaturan ini butuh Apps Script versi baru. Tempel ulang kode.gs terbaru di Apps Script, lalu Terapkan > Kelola deployment > Versi baru.</div>') +
+        '<p class="sub" style="margin:0 0 12px;color:var(--teks-2);font-size:.8125rem">Atur kapan peringatan muncul di Ringkasan. Matikan yang tidak perlu supaya peringatan yang penting tidak tenggelam.</p>' +
+        ATURAN_BATAS.map(function (a) {
+          var b = batas[a.k], nyala = b.aktif !== false;
+          return '<div class="kartu kartu-batas' + (nyala ? '' : ' mati') + '" data-k="' + a.k + '"><div class="kepala-batas"><div><h2>' + esc(a.judul) + '</h2>' +
+            (a.ket ? '<p class="sub">' + esc(a.ket) + '</p>' : '') + '</div>' +
+            '<button type="button" class="saklar' + (nyala ? ' nyala' : '') + '" data-saklar="' + a.k + '">' + (nyala ? 'Aktif' : 'Mati') + '</button></div>' +
+            (a.isian || []).map(function (x) {
+              var v = b[x.f];
+              var tampil = x.jenis === 'desimal' ? String(v).replace('.', ',') : String(v);
+              return '<div class="isian-batas"><label for="bt-' + a.k + '-' + x.f + '">' + esc(x.label) + '</label>' +
+                '<div class="masukan-satuan"><input class="masukan" id="bt-' + a.k + '-' + x.f + '" data-k="' + a.k + '" data-f="' + x.f + '" data-jenis="' + x.jenis + '"' +
+                ' inputmode="' + (x.jenis === 'desimal' ? 'decimal' : 'numeric') + '" value="' + esc(tampil) + '"' + (nyala ? '' : ' disabled') + '><span>' + esc(x.satuan) + '</span></div>' +
+                (x.bantuan ? '<div class="bantuan">' + esc(x.bantuan) + '</div>' : '') + '</div>';
+            }).join('') + '</div>';
+        }).join('');
+      kerangka('Batas peringatan', 'Untuk Ringkasan dan tab Ringkasan di Sheet', html, {kembali: '#/kelola', tanpaNav: true});
+      app.insertAdjacentHTML('beforeend', '<div class="aksi-bawah"><button class="tombol kedua" id="batas-bawaan" type="button">Kembalikan bawaan</button>' +
+        '<button class="tombol utama" id="batas-simpan" type="button"' + (baru ? '' : ' disabled') + '>Simpan</button></div>');
+      document.getElementById('batas-bawaan').addEventListener('click', function () {
+        if (!confirm('Kembalikan semua batas peringatan ke bawaan? Belum tersimpan sampai menekan Simpan.')) return;
+        batas = salin(BATAS_BAWAAN); tulis();
+      });
+      document.getElementById('batas-simpan').addEventListener('click', simpanBatas);
+      app.querySelector('.isi').addEventListener('click', function (ev) {
+        var t = ev.target.closest('[data-saklar]');
+        if (!t) return;
+        bacaIsianBatas();
+        var b = batas[t.dataset.saklar];
+        b.aktif = b.aktif === false;
+        var y = window.scrollY;
+        tulis();
+        window.scrollTo(0, y);
+      });
+    };
+    var bacaIsianBatas = function () {
+      var salah = '';
+      qa(app, 'input[data-f]').forEach(function (el) {
+        var v = el.dataset.jenis === 'desimal' ? angkaDesimal(el.value) : angkaBulat(el.value);
+        if (isNaN(v)) { if (!salah) salah = 'Isi angka di "' + el.closest('.isian-batas').querySelector('label').textContent + '".'; return; }
+        batas[el.dataset.k][el.dataset.f] = v;
+      });
+      return salah;
+    };
+    var simpanBatas = function () {
+      var salah = bacaIsianBatas();
+      if (salah) { toast(salah, 4000); return; }
+      var tombol = document.getElementById('batas-simpan');
+      tombol.disabled = true; tombol.textContent = 'Menyimpan…';
+      panggil('pengaturanSimpan', {batas: batas}).then(function (r) {
+        tombol.disabled = false; tombol.textContent = 'Simpan';
+        if (!r.ok) { toast(r.galat || 'Gagal menyimpan.', 5000); return; }
+        konfig.pengaturan.batas = r.batas || batas; simpan('konfig', konfig);
+        buang('ringkasan');
+        toast('Batas peringatan disimpan.');
+        location.hash = '#/ringkasan';
+      }, function (e) {
+        tombol.disabled = false; tombol.textContent = 'Simpan';
+        toast(e.jaringan ? 'Perlu sinyal untuk menyimpan.' : e.message, 5000);
+      });
+    };
+    tulis();
+  }
+
   // ------------------------------------------------------------ layar: tampilan & tata letak
   function pilihanChip(nama, opsi, nilai, judul, bantuan) {
     return '<div class="bidang"><span class="label">' + esc(judul) + '</span>' + (bantuan ? '<div class="bantuan">' + esc(bantuan) + '</div>' : '') +
@@ -2686,6 +2780,7 @@
       case 'kelola': if (bagian[1]) layarMaster(bagian[1]); else layarKelola(); break;
       case 'pengguna': layarPengguna(); break;
       case 'tampilan': layarTampilan(); break;
+      case 'batas': layarBatas(); break;
       default: layarBeranda();
     }
   }

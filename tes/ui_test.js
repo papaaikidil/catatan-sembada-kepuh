@@ -364,6 +364,25 @@ async function simpanDanKonfirmasi(page) {
   await page.evaluate(() => document.querySelectorAll('.tirai').forEach(t => t.remove()));
   cek('kartu laporan, gaji per orang, dan stok bisa diketuk untuk rincian');
 
+  // batas peringatan
+  assert.ok(/TAGIH/.test(await page.textContent('.isi')));
+  await page.click('[data-ke="#/batas"]');
+  await page.waitForSelector('.kartu-batas');
+  await page.click('[data-saklar="belumLunas"]');
+  await page.waitForSelector('.kartu-batas.mati[data-k="belumLunas"]');
+  await isi(page, '#bt-alatKosong-hari', '4');
+  await page.click('[data-saklar="stokRendah"]');
+  await isi(page, '#bt-stokRendah-kg', '20,5');
+  await foto(page, '12d-batas-peringatan', true);
+  await page.click('#batas-simpan');
+  await page.waitForFunction(() => location.hash === '#/ringkasan');
+  await page.waitForFunction(() => /menipis/.test(document.querySelector('.isi').textContent));
+  const teksPer = await page.textContent('.isi');
+  assert.ok(!/TAGIH/.test(teksPer), 'belum lunas dimatikan');
+  const bt = server.panggil({ aksi: 'config', token }).pengaturan.batas;
+  assert.strictEqual(bt.alatKosong.hari, 4); assert.strictEqual(bt.stokRendah.kg, 20.5); assert.strictEqual(bt.belumLunas.aktif, false);
+  cek('batas peringatan bisa diatur dan langsung berlaku');
+
   await page.goto(ASAL + '#/terbaru/absensi');
   await page.waitForSelector('.baris-entri');
   await foto(page, '13-riwayat-absensi', true);

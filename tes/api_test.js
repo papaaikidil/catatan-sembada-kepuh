@@ -254,6 +254,34 @@ uji('absensi suling yang beda dengan produksi jadi peringatan', () => {
   assert.ok(!r.peringatan.some(p => p.hal === 'Operator suling belum diabsen'));
   assert.strictEqual(r.minggu.find(x => x.mulai === senin).orang.find(o => o.nama === 'Dedi').total, 2 * 90000 + 13000);
 });
+uji('batas peringatan bisa diatur pemilik', () => {
+  const cfg = panggil({ aksi: 'config', token });
+  assert.deepStrictEqual(cfg.pengaturan.batas.alatKosong, { aktif: true, hari: 2 });
+  assert.deepStrictEqual(cfg.pengaturan.batas.stokRendah, { aktif: false, kg: 5 });
+  let r = panggil({ aksi: 'ringkasan', token });
+  assert.ok(r.peringatan.some(p => /Alat 3 tidak jalan/.test(p.hal)) && r.peringatan.some(p => p.status === 'TAGIH'));
+  assert.ok(!r.peringatan.some(p => /menipis/.test(p.hal)), 'stok rendah mati secara bawaan');
+  const batas = JSON.parse(JSON.stringify(cfg.pengaturan.batas));
+  batas.alatKosong.hari = 3; batas.belumLunas.minimal = 5000000; batas.stokRendah = { aktif: true, kg: 100 }; batas.hargaNaik.maksimal = 500;
+  batas.cocokAbsensi.aktif = false;
+  const sv = panggil({ aksi: 'pengaturanSimpan', token, batas });
+  assert.ok(sv.ok, JSON.stringify(sv)); assert.strictEqual(sv.batas.alatKosong.hari, 3);
+  r = panggil({ aksi: 'ringkasan', token });
+  const hal = r.peringatan.map(p => p.hal).join(' | ');
+  assert.ok(!/tidak jalan/.test(hal), 'kosong 2 hari < batas 3: ' + hal);
+  assert.ok(!r.peringatan.some(p => p.status === 'TAGIH'), 'belum lunas di bawah Rp5 juta');
+  assert.ok(/Harga bahan per kg di atas Rp500/.test(hal), hal);
+  assert.ok(/Stok Minyak jeruk purut menipis/.test(hal), hal);
+  assert.ok(!/beda dengan produksi/.test(hal), 'pengecekan absensi dimatikan');
+  batas.belumLunas = { aktif: true, minimal: 1, lewatHari: 30 };
+  assert.ok(panggil({ aksi: 'pengaturanSimpan', token, batas }).ok);
+  assert.ok(!panggil({ aksi: 'ringkasan', token }).peringatan.some(p => p.status === 'TAGIH'), 'penjualan baru belum lewat 30 hari');
+  assert.strictEqual(panggil({ aksi: 'pengaturanSimpan', token, batas: { alatKosong: { aktif: true, hari: 9 } } }).ok, false);
+  assert.strictEqual(panggil({ aksi: 'pengaturanSimpan', token, batas: { minyakTurun: { persen: 0 } } }).ok, false);
+  assert.ok(panggil({ aksi: 'pengaturanSimpan', token, batas: {} }).ok, 'kembali ke bawaan');
+  assert.deepStrictEqual(panggil({ aksi: 'config', token }).pengaturan.batas, cfg.pengaturan.batas);
+  assert.ok(panggil({ aksi: 'ringkasan', token }).peringatan.some(p => p.status === 'TAGIH'));
+});
 uji('rincian periode berisi semua catatan untuk kartu laporan', () => {
   const r = panggil({ aksi: 'rincian', token, mulai: senin, sampai: geser(senin, 6) });
   assert.ok(r.ok, JSON.stringify(r));
@@ -337,6 +365,7 @@ uji('pencatat tidak boleh mengatur atau mengisi di luar haknya', () => {
   assert.strictEqual(panggil({ aksi: 'masterSimpan', token: t, tab: 'Karyawan', nilai: { Nama: 'X', Peran: 'Lainnya' } }).ok, false);
   assert.strictEqual(panggil({ aksi: 'penggunaDaftar', token: t }).ok, false);
   assert.strictEqual(panggil({ aksi: 'tampilanSimpan', token: t, tampilan: {} }).ok, false);
+  assert.strictEqual(panggil({ aksi: 'pengaturanSimpan', token: t, batas: {} }).ok, false);
   assert.strictEqual(panggil({ aksi: 'hapus', token: t, tab: 'Absensi', id: 'x' }).ok, false);
   assert.ok(panggil({ aksi: 'terbaru', token: t, tab: 'Absensi' }).ok);
   assert.ok(panggil({ aksi: 'simpan', token: t, tab: 'Absensi', id: 'P1', nilai: { Tanggal: geser(senin, 2) }, baris: [{ Nama: 'Eko', Kehadiran: 'Libur' }] }).ok);

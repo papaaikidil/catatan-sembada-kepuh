@@ -19,7 +19,7 @@
 // otomatis setiap jam, setiap kali ringkasan dibuka di aplikasi, dan lewat menu "Sembada Kepuh".
 // =====================================================================
 
-var KP_VERSI = 5;
+var KP_VERSI = 6;
 // ID Google Sheet "Catatan Sembada Kepuh". Dipakai kalau Apps Script ini dibuat terpisah
 // (bukan dari menu Ekstensi di Sheet). Kosongkan kalau kode ditempel lewat Ekstensi > Apps Script.
 var KP_ID_SHEET = '1VYCYBaB6tcLnE9iurCG1ZVWrlHJWv-KsPxAdp4Jmp7k';
@@ -140,7 +140,8 @@ var PENGATURAN_AWAL = [
   ['Lokasi', 'Kepuh', ''],
   ['Awal minggu', 'Senin', 'Hari pertama minggu untuk rekap dan gajian (Senin sampai Minggu).'],
   ['Tampilan', '{}', 'Diatur dari aplikasi (menu Kelola > Tampilan). Jangan diubah manual.'],
-  ['Sandi sementara pemilik', '', 'Hilang otomatis setelah sandi diganti.']
+  ['Sandi sementara pemilik', '', 'Hilang otomatis setelah sandi diganti.'],
+  ['Batas peringatan', '{}', 'Diatur dari aplikasi (Kelola > Batas peringatan). Jangan diubah manual.']
 ];
 
 var TAB_LAPORAN = ['Ringkasan', 'Rekap Mingguan', 'Rekap Bulanan', 'Upah Mingguan', 'Rekap Alat'];
@@ -316,6 +317,50 @@ var HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 function hariAwalMinggu_(peng) {
   var i = HARI.indexOf(String(peng['Awal minggu'] || 'Senin').trim());
   return i >= 0 ? i : 1;
+}
+
+// Batas peringatan yang bisa diatur pemilik. Nilai yang belum diatur memakai bawaan ini.
+var BATAS_BAWAAN = {
+  alatKosong: {aktif: true, hari: 2},
+  cocokAbsensi: {aktif: true},
+  upahSuling: {aktif: true},
+  belumLunas: {aktif: true, minimal: 1, lewatHari: 0},
+  minyakTurun: {aktif: true, persen: 15},
+  hargaNaik: {aktif: true, persen: 15, maksimal: 0},
+  stokMinus: {aktif: true},
+  stokRendah: {aktif: false, kg: 5}
+};
+var BATAS_RENTANG = {hari: [1, 7], persen: [1, 100], minimal: [0, 1e12], lewatHari: [0, 60], maksimal: [0, 1e9], kg: [0, 1e6]};
+
+function normalBatas_(simpanan) {
+  simpanan = simpanan && typeof simpanan === 'object' ? simpanan : {};
+  var out = {};
+  Object.keys(BATAS_BAWAAN).forEach(function (k) {
+    out[k] = {};
+    Object.keys(BATAS_BAWAAN[k]).forEach(function (f) {
+      var ada = simpanan[k] && simpanan[k][f] !== undefined && simpanan[k][f] !== null && simpanan[k][f] !== '';
+      var v = ada ? simpanan[k][f] : BATAS_BAWAAN[k][f];
+      if (f === 'aktif') { out[k][f] = v !== false && v !== 'false'; return; }
+      v = Number(v);
+      out[k][f] = isFinite(v) ? v : BATAS_BAWAAN[k][f];
+    });
+  });
+  return out;
+}
+
+function cekBatas_(b) {
+  var galat = '';
+  Object.keys(b).forEach(function (k) {
+    Object.keys(b[k]).forEach(function (f) {
+      var r = BATAS_RENTANG[f];
+      if (!galat && r && (b[k][f] < r[0] || b[k][f] > r[1])) galat = 'Batas ' + f + ' harus antara ' + r[0] + ' dan ' + r[1] + '.';
+    });
+  });
+  return galat;
+}
+
+function bacaBatas_(peng) {
+  try { return normalBatas_(JSON.parse(String(peng['Batas peringatan'] || '{}'))); } catch (e) { return normalBatas_({}); }
 }
 
 function bacaTampilan_(peng) {
@@ -972,7 +1017,7 @@ function config_(ss, akses) {
   return {ok: true, versiApi: KP_VERSI, akses: akses, master: master, kepala: kepala,
     skema: akses.admin ? skemaMaster_() : null,
     pengaturan: {namaUsaha: String(peng['Nama usaha'] || ''), lokasi: String(peng['Lokasi'] || ''),
-      awalMinggu: HARI[hariAwalMinggu_(peng)]},
+      awalMinggu: HARI[hariAwalMinggu_(peng)], batas: bacaBatas_(peng)},
     tampilan: bacaTampilan_(peng)};
 }
 
@@ -1002,6 +1047,15 @@ function pengaturanSimpan_(ss, akses, req) {
     tandaiLaporanKotor_();
   }
   if (req.lokasi !== undefined) tulisPengaturan_(ss, 'Lokasi', String(req.lokasi).trim().slice(0, 60));
+  if (req.batas !== undefined) {
+    var batas = normalBatas_(req.batas);
+    var g = cekBatas_(batas);
+    if (g) return {ok: false, galat: g};
+    tulisPengaturan_(ss, 'Batas peringatan', JSON.stringify(batas));
+    catatLog_(ss, 'Ubah batas peringatan', 'Pengaturan', '', '', JSON.stringify(batas), akses.pengguna);
+    tandaiLaporanKotor_();
+    return {ok: true, batas: batas};
+  }
   return {ok: true};
 }
 
@@ -1524,8 +1578,10 @@ function hitungLaporan_(ss) {
   var hasil = {hariIni: hariIni, dataSampai: tglMaks, minggu: hasilMinggu, bulan: hasilBulan};
   hasil.stok = hitungStok_(ss);
   hasil._tarif = bacaMaster_(ss, 'Tarif Upah');
+  hasil._batas = bacaBatas_(peng);
   hasil.peringatan = peringatan_(hasil, alatInduk, bacaMaster_(ss, 'Karyawan'), d);
   delete hasil._tarif;
+  delete hasil._batas;
   return hasil;
 }
 
@@ -1580,42 +1636,63 @@ function peringatan_(h, alatInduk, karyawan, d) {
   var out = [];
   var ini = h.minggu[0];
   var lalu = h.minggu[1];
+  var B = h._batas || normalBatas_({});
   if (!karyawan.some(function (k) { return k.aktif; })) {
     out.push({status: 'ISI', hal: 'Daftar karyawan masih kosong', nilai: '', saran: 'Tambahkan karyawan di menu Kelola > Karyawan.'});
   }
   var tanpaUpah = karyawan.filter(function (k) { return k.aktif && k.nilai['Peran'] === 'Penyuling' && !(angka_(k.nilai['Upah per sulingan (Rp)']) > 0); })
     .map(function (k) { return k.nilai['Nama']; });
-  if (tanpaUpah.length) {
+  if (B.upahSuling.aktif && tanpaUpah.length) {
     out.push({status: 'ISI', hal: 'Upah per sulingan belum diisi', nilai: tanpaUpah.join(', '),
       saran: 'Isi di Kelola > Karyawan, supaya absensi "1x/2x/3x suling" terhitung upahnya.'});
   }
-  cocokkanAbsensiSuling_(h, d).forEach(function (p) { out.push(p); });
-  if (ini) {
-    ini.alat.filter(function (a) { return a.hariKosong >= 2; }).forEach(function (a) {
+  if (B.cocokAbsensi.aktif) cocokkanAbsensiSuling_(h, d).forEach(function (p) { out.push(p); });
+  if (ini && B.alatKosong.aktif) {
+    ini.alat.filter(function (a) { return a.hariKosong >= B.alatKosong.hari; }).forEach(function (a) {
       out.push({status: 'PERHATIAN', hal: a.nama + ' tidak jalan minggu ini', nilai: a.hariKosong + ' hari',
         saran: 'Cek alat, bahan, atau operatornya.'});
     });
   }
-  var belum = d['Penjualan'].reduce(function (s, r) {
-    var st = String(r['Status bayar'] || '').trim();
-    return st && st !== 'Lunas' ? s + angka_(r['Total (Rp)']) : s;
-  }, 0);
-  if (belum > 0) out.push({status: 'TAGIH', hal: 'Penjualan belum lunas', nilai: rp_(belum), saran: 'Tagih, lalu ubah status bayar di Riwayat Penjualan.'});
-  if (ini && h.minggu.length > 1 && ini.minyakPerSulingan) {
+  if (B.belumLunas.aktif) {
+    var batasTgl = tambahHari_(h.hariIni, -B.belumLunas.lewatHari);
+    var belum = 0, nota = 0;
+    d['Penjualan'].forEach(function (r) {
+      var st = String(r['Status bayar'] || '').trim(), k = tglKunci_(r['Tanggal']);
+      if (!st || st === 'Lunas' || (B.belumLunas.lewatHari > 0 && (!k || k > batasTgl))) return;
+      belum += angka_(r['Total (Rp)']); nota++;
+    });
+    if (belum > 0 && belum >= B.belumLunas.minimal) {
+      out.push({status: 'TAGIH', hal: 'Penjualan belum lunas' + (B.belumLunas.lewatHari > 0 ? ' lebih dari ' + B.belumLunas.lewatHari + ' hari' : ''),
+        nilai: rp_(belum) + (nota > 1 ? ' (' + nota + ' penjualan)' : ''), saran: 'Tagih, lalu ubah status bayar di Riwayat Penjualan.'});
+    }
+  }
+  if (B.minyakTurun.aktif && ini && h.minggu.length > 1 && ini.minyakPerSulingan) {
     var sebelum = h.minggu.slice(1, 5).map(function (m) { return m.minyakPerSulingan; }).filter(function (x) { return x; });
     if (sebelum.length) {
       var rata = sebelum.reduce(function (s, x) { return s + x; }, 0) / sebelum.length;
-      if (ini.minyakPerSulingan < rata * 0.85) {
+      if (ini.minyakPerSulingan < rata * (1 - B.minyakTurun.persen / 100)) {
         out.push({status: 'PERHATIAN', hal: 'Minyak per sulingan turun', nilai: ini.minyakPerSulingan + ' kg (rata-rata ' + bulat_(rata, 2) + ' kg)',
           saran: 'Cek kondisi bahan (terlalu kering/basah) dan kebocoran alat.'});
       }
     }
   }
-  if (ini && lalu && ini.hargaBahan && lalu.hargaBahan && ini.hargaBahan > lalu.hargaBahan * 1.15) {
-    out.push({status: 'PERHATIAN', hal: 'Harga bahan per kg naik', nilai: rp_(ini.hargaBahan) + ' (minggu lalu ' + rp_(lalu.hargaBahan) + ')',
-      saran: 'Bandingkan harga antar daerah di Riwayat Ambil Bahan.'});
+  if (B.hargaNaik.aktif && ini && ini.hargaBahan) {
+    var naik = lalu && lalu.hargaBahan && ini.hargaBahan > lalu.hargaBahan * (1 + B.hargaNaik.persen / 100);
+    var lewat = B.hargaNaik.maksimal > 0 && ini.hargaBahan > B.hargaNaik.maksimal;
+    if (naik || lewat) {
+      out.push({status: 'PERHATIAN', hal: lewat ? 'Harga bahan per kg di atas ' + rp_(B.hargaNaik.maksimal) : 'Harga bahan per kg naik',
+        nilai: rp_(ini.hargaBahan) + (lalu && lalu.hargaBahan ? ' (minggu lalu ' + rp_(lalu.hargaBahan) + ')' : ''),
+        saran: 'Bandingkan harga antar daerah di Riwayat Ambil Bahan.'});
+    }
   }
-  ((h.stok && h.stok.produk) || []).filter(function (p) { return p.stok < -0.0005; }).forEach(function (p) {
+  var stokList = (h.stok && h.stok.produk) || [];
+  if (B.stokRendah.aktif) {
+    stokList.filter(function (p) { return p.satuan === 'kg' && p.stok >= -0.0005 && p.stok < B.stokRendah.kg; }).forEach(function (p) {
+      out.push({status: 'PERHATIAN', hal: 'Stok ' + p.produk + ' menipis', nilai: bulat_(p.stok, 2) + ' kg (batas ' + B.stokRendah.kg + ' kg)',
+        saran: 'Cek jadwal suling dan pesanan pembeli.'});
+    });
+  }
+  stokList.filter(function (p) { return B.stokMinus.aktif && p.stok < -0.0005; }).forEach(function (p) {
     out.push({status: 'PERHATIAN', hal: 'Stok ' + p.produk + ' minus', nilai: bulat_(p.stok, 2) + ' ' + p.satuan,
       saran: 'Ada saring minyak yang belum dicatat, atau timbang ulang lalu sesuaikan stok di Ringkasan.'});
   });

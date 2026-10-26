@@ -389,3 +389,15 @@ button.baris-angka:active { background: var(--latar); }
 .ket-rinci { font-size: .8125rem; color: var(--teks-2); margin: 0 0 .25rem; }
 .isi-rinci { margin-bottom: 1rem; }
 .isi-rinci .baris-angka small { overflow-wrap: anywhere; }
+
+/* ---------- batas peringatan */
+.kartu-batas .kepala-batas { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+.kartu-batas .kepala-batas .sub { margin-bottom: 0; }
+.kartu-batas.mati h2, .kartu-batas.mati .sub, .kartu-batas.mati label { opacity: .55; }
+.isian-batas { margin-top: .75rem; }
+.isian-batas label { display: block; font-size: .8125rem; font-weight: 700; color: var(--teks-2); margin-bottom: .25rem; }
+.masukan-satuan { display: flex; align-items: center; gap: .5rem; }
+.masukan-satuan .masukan { flex: 1; min-width: 0; }
+.masukan-satuan span { flex: none; font-weight: 700; color: var(--teks-2); min-width: 3rem; }
+.masukan:disabled { opacity: .5; }
+.isian-batas .bantuan { color: var(--teks-2); font-size: .8125rem; margin-top: .25rem; }
